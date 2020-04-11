@@ -1,0 +1,4 @@
+def solve(ref int a):
+  int NumberOfRings
+  return nil
+end

@@ -1,0 +1,130 @@
+use crate::ast;
+use crate::lexer;
+use std::str::FromStr;
+use std::iter::FromIterator;
+
+grammar;
+
+pub Program: ast::Program = {
+    <func_defs:FuncDef*> => ast::Program(Vec::from_iter(func_defs.into_iter())),
+};
+
+Identifier: ast::Identifier = <s:Ident> => ast::Identifier(s);
+
+FuncDef: ast::FuncDef = {
+  "def" <header:Formal> "(" <args:Formal*> ")" ":" <decls:Decl*> <stmts:Stmt*> "end" => {
+    ast::FuncDef {
+        header: (header, Vec::from_iter(args.into_iter())),
+        declarations: Vec::from_iter(decls.into_iter()),
+        statements: Vec::from_iter(stmts.into_iter()),
+    }
+  },
+};
+
+Formal: ast::Formal = {
+  <_ref:"ref"?> <t:TonyType?> <id:Identifier> => {
+    ast::Formal {
+        is_ref: _ref.is_some(),
+        var: ast::VarDef {
+          tony_type: t.unwrap_or(ast::TonyType::Unit),
+          id,
+        }
+    }
+  },
+};
+
+Decl: ast::Decl = {
+  <v:VarDef> => {
+    ast::Decl::Var(v)
+  },
+  <f:FuncDef> => {
+    ast::Decl::Func(f)
+  },
+}
+
+VarDef: ast::VarDef = {
+  <t:TonyType> <id:Identifier> => {
+      ast::VarDef {
+          tony_type: t,
+          id,
+      }
+  },
+};
+
+TonyType: ast::TonyType = {
+  "int" => {
+    ast::TonyType::Int
+  },
+  "bool" => {
+    ast::TonyType::Bool
+  },
+  "char" => {
+    ast::TonyType::Char
+  },
+}
+
+Stmt: ast::Stmt = {
+  <s:Simple> => ast::Stmt::Simple(s),
+  "exit" => ast::Stmt::Exit,
+  "return" <e:Expr> => ast::Stmt::Return(Box::new(e)),
+}
+
+Simple: ast::Simple = {
+    "skip" => ast::Simple::Skip,
+    <id:Identifier> "(" <e:("," <Expr>)+> ")" => ast::Simple::Call(ast::Call(id, e.into_iter().collect::<Vec<ast::Expr>>())),
+    <a:Atom> ":" "=" <e:Expr> => ast::Simple::Assignment(a, Box::new(e)),
+}
+
+Atom: ast::Atom = {
+    <id:Identifier> => ast::Atom::Id(id),
+    <id:Identifier> "(" <e:("," <Expr>)+> ")" => ast::Atom::Call(ast::Call(id, e.into_iter().collect::<Vec<ast::Expr>>())),
+}
+
+Expr: ast::Expr = {
+  "not" <e:FExpr> => ast::Expr::Not(Box::new(e)),
+  <e: FExpr> => e
+}
+
+FExpr: ast::Expr = {
+  <e1: TExpr> "and" <e2: TExpr> => ast::Expr::And(Box::new(e1), Box::new(e2)),
+  <e1: TExpr> "or" <e2: TExpr> => ast::Expr::Or(Box::new(e1), Box::new(e2)),
+  <e: TExpr> => e,
+}
+
+TExpr: ast::Expr = {
+  <a:Atom> => ast::Expr::Atom(a),
+  "true" => ast::Expr::True,
+  "false" => ast::Expr::False,
+  "new" <t:TonyType> "[" <e: Expr> "]" => ast::Expr::New(t, Box::new(e)),
+  "nil" => ast::Expr::Nil,
+}
+
+// Hook external lexer:
+extern {
+    enum lexer::Token {
+      Ident => lexer::Token::Ident(<String>),
+      "def" => lexer::Token::Def,
+      "int" => lexer::Token::Int,
+      "bool" => lexer::Token::Bool,
+      "char" => lexer::Token::Char,
+      "ref" => lexer::Token::Ref,
+      "end" => lexer::Token::End,
+      "exit" => lexer::Token::Exit,
+      "and" => lexer::Token::And,
+      "or" => lexer::Token::Or,
+      "not" => lexer::Token::Not,
+      "true" => lexer::Token::True,
+      "false" => lexer::Token::False,
+      "new" => lexer::Token::New,
+      "nil" => lexer::Token::Nil,
+      "return" => lexer::Token::Return,
+      "skip" => lexer::Token::Skip,
+      "," => lexer::Token::Comma,
+      ":" => lexer::Token::Colon,
+      "=" => lexer::Token::Equals,
+      "("   => lexer::Token::LParen,
+      ")"   => lexer::Token::RParen,
+      "["   => lexer::Token::LSqBracket,
+      "]"   => lexer::Token::RSqBracket,
+    }
+}

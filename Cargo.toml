@@ -1,0 +1,15 @@
+[package]
+name = "tony"
+version = "0.1.0"
+authors = ["Manos Pitsidianakis <el13635@mail.ntua.gr>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+
+[build-dependencies] # <-- We added this and everything after!
+lalrpop = "0.18.1"
+
+[dependencies]
+lalrpop-util = "0.18.1"
+inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "llvm8-0" }
