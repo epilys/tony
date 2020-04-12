@@ -19,35 +19,62 @@
  * along with meli. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Identifier(pub String);
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StringLiteral(pub String);
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CharConst(pub char);
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IntConst(pub f64);
 
-#[derive(Debug)]
-pub struct Program(pub Vec<FuncDef>);
-
-#[derive(Debug)]
-pub struct FuncDef {
-    pub header: (Formal, Vec<Formal>),
-    pub declarations: Vec<Decl>,
-    pub statements: Vec<Stmt>,
+#[derive(Debug, Clone)]
+pub struct Span<T: std::fmt::Debug + Clone> {
+    left: usize,
+    right: usize,
+    inner: T,
 }
 
-#[derive(Debug)]
+impl<T: std::fmt::Debug + Clone> Span<T> {
+    pub fn into_inner(&self) -> &T {
+        &self.inner
+    }
+    pub fn span(&self) -> (usize, usize) {
+        (self.left, self.right)
+    }
+
+    pub fn new(inner: T, left: usize, right: usize) -> Span<T> {
+        Span { left, right, inner }
+    }
+}
+
+#[macro_export]
+macro_rules! span {
+    [$T:expr; $l:expr, $r:expr] => {
+        crate::ast::Span::new($T, $l, $r)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Program(pub Vec<Span<FuncDef>>);
+
+#[derive(Debug, Clone)]
+pub struct FuncDef {
+    pub header: (Formal, Vec<Formal>),
+    pub declarations: Vec<Span<Decl>>,
+    pub statements: Vec<Span<Stmt>>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Formal {
     pub is_ref: bool,
     pub var: VarDef,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VarDef {
-    pub tony_type: TonyType,
-    pub id: Identifier,
+    pub tony_type: Span<TonyType>,
+    pub id: Span<Identifier>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,69 +83,69 @@ pub enum TonyType {
     Bool,
     Char,
     Unit,
-    Array(Box<TonyType>),
-    List(Box<TonyType>),
+    Array(Box<Span<TonyType>>),
+    List(Box<Span<TonyType>>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Simple(Simple),
     Exit,
-    Return(Box<Expr>),
+    Return(Box<Span<Expr>>),
     Control(StmtType),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StmtType {
     If {
-        condition: Box<Expr>,
-        body: Vec<Stmt>,
-        _else: Vec<Stmt>,
+        condition: Box<Span<Expr>>,
+        body: Vec<Span<Stmt>>,
+        _else: Vec<Span<Stmt>>,
     },
     For,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Simple {
     Skip,
     Call(Call),
-    Assignment(Atom, Box<Expr>),
+    Assignment(Atom, Box<Span<Expr>>),
 }
 
-#[derive(Debug)]
-pub struct Call(pub Identifier, pub Vec<Expr>);
+#[derive(Debug, Clone)]
+pub struct Call(pub Span<Identifier>, pub Vec<Span<Expr>>);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Atom {
-    Id(Identifier),
+    Id(Span<Identifier>),
     StringLiteral(StringLiteral),
-    AtomIndex(Box<Expr>),
+    AtomIndex(Box<Span<Expr>>),
     Call(Call),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Atom(Atom),
     IntConst(IntConst),
     CharConst(CharConst),
     True,
     False,
-    Not(Box<Expr>),
-    And(Box<Expr>, Box<Expr>),
-    Or(Box<Expr>, Box<Expr>),
-    Minus(Box<Expr>),
-    Op(Box<Expr>, Operator, Box<Expr>),
-    New(TonyType, Box<Expr>),
+    Not(Box<Span<Expr>>),
+    And(Box<Span<Expr>>, Box<Span<Expr>>),
+    Or(Box<Span<Expr>>, Box<Span<Expr>>),
+    Minus(Box<Span<Expr>>),
+    Op(Box<Span<Expr>>, Operator, Box<Span<Expr>>),
+    New(Span<TonyType>, Box<Span<Expr>>),
     Nil,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Decl {
-    Func(FuncDef),
+    Func(Span<FuncDef>),
     Var(VarDef),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Operator {
     Equals,
     NotEquals,

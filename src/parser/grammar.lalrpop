@@ -1,5 +1,6 @@
-use crate::ast;
+use crate::ast::{self, Span};
 use crate::lexer;
+use crate::span;
 use std::iter::FromIterator;
 
 grammar;
@@ -9,26 +10,26 @@ pub Program: ast::Program = {
 };
 
 // Constants
-Identifier: ast::Identifier = <s:IdentifierString> => ast::Identifier(s);
+Identifier: Span<ast::Identifier> = <l:@L> <s:IdentifierString> <r:@R> => span![ast::Identifier(s); l,r];
 CharConst: ast::CharConst = <c:CChar> => ast::CharConst(c);
 IntConst: ast::IntConst = <i:Number> => ast::IntConst(i);
 
-FuncDef: ast::FuncDef = {
-  "def" <header:Header> ":" <decls:Decl*> <stmts:Stmt*> "end" => {
-    ast::FuncDef {
+FuncDef: ast::Span<ast::FuncDef> = {
+  <l:@L> "def" <header:Header> ":" <decls:Decl*> <stmts:Stmt*> "end" <r:@R> => {
+    span![ast::FuncDef {
         header,
         declarations: Vec::from_iter(decls.into_iter()),
         statements: Vec::from_iter(stmts.into_iter()),
-    }
+    }; l, r]
   },
 };
 
 Header: (ast::Formal, Vec<ast::Formal>) = {
-   <header_type:TonyType?> <header_ident:Identifier> "(" <args:SemicolonList<FormalList>> ")" => {
+   <l:@L> <header_type:TonyType?> <r:@R> <header_ident:Identifier> "(" <args:SemicolonList<FormalList>> ")" => {
      (ast::Formal {
           is_ref: false,
           var: ast::VarDef {
-            tony_type: header_type.unwrap_or(ast::TonyType::Unit),
+            tony_type: header_type.unwrap_or(span![ast::TonyType::Unit; l, r]),
             id: header_ident,
           },
         }, Vec::from_iter(args.into_iter().flatten()))
@@ -77,12 +78,12 @@ SemicolonNoTrailingList<T>: Vec<T> = {
     DelimNoTrailing<T, ";"> => <>
 }
 
-Decl: ast::Decl = {
-  <v:VarDef> => {
-    ast::Decl::Var(v)
+Decl: Span<ast::Decl>= {
+  <l:@L> <v:VarDef> <r:@R> => {
+    span![ast::Decl::Var(v); l,r]
   },
-  <f:FuncDef> => {
-    ast::Decl::Func(f)
+  <l:@L> <f:FuncDef> <r:@R> =>{
+     span![ast::Decl::Func(f); l,r]
   },
 }
 
@@ -95,16 +96,16 @@ VarDef: ast::VarDef = {
   },
 };
 
-TonyType: ast::TonyType = {
-  <t: ETonyType> => t,
-  "int" => {
-    ast::TonyType::Int
+TonyType: Span<ast::TonyType> = {
+  <l:@L> <t: ETonyType> <r:@R> => span![t; l,r],
+  <l:@L> "int" <r:@R> => {
+    span![ast::TonyType::Int; l,r]
   },
-  "bool" => {
-    ast::TonyType::Bool
+  <l:@L> "bool" <r:@R> => {
+    span![ast::TonyType::Bool; l,r]
   },
-  "char" => {
-    ast::TonyType::Char
+  <l:@L> "char" <r:@R> => {
+    span![ast::TonyType::Char; l,r]
   },
 }
 
@@ -115,21 +116,21 @@ ETonyType: ast::TonyType = {
 }
 
 
-Stmt: ast::Stmt = {
-  <s:Simple> => ast::Stmt::Simple(s),
-  "exit" => ast::Stmt::Exit,
-  "return" <e:Expr> => ast::Stmt::Return(Box::new(e)),
-  IfStatement,
+Stmt: Span<ast::Stmt> = {
+  <l:@L> <s:Simple> <r:@R> => span![ast::Stmt::Simple(s); l, r],
+  <l:@L> "exit" <r:@R> => span![ast::Stmt::Exit; l, r],
+  <l:@L> "return" <e:Expr> <r:@R> => span![ast::Stmt::Return(Box::new(e)); l, r],
+  <l:@L> <i:IfStatement> <r:@R> => span![i; l,r],
   //ForStmt,
 }
 
 IfStatement: ast::Stmt = {
-    "if" <condition:Expr> ":" <body:Stmt+> <elifs:("elif" <Expr> ":" <Stmt+>)*> <_else:("else" ":" <Stmt+>)?> "end" => {
+    "if" <condition:Expr> ":" <body:Stmt+> <elifs:(<@L> "elif" <Expr> ":" <Stmt+> <@R>)*> <_else:("else" ":" <Stmt+>)?> "end" => {
         let mut _else = _else;
 
         // Elifs:
         for e in elifs.into_iter().rev() {
-            let x = ast::Stmt::Control(ast::StmtType::If { condition: Box::new(e.0), body: e.1, _else: _else.unwrap_or(vec![]) });
+            let x = span![ast::Stmt::Control(ast::StmtType::If { condition: Box::new(e.1), body: e.2, _else: _else.unwrap_or(vec![]) }); e.0, e.3];
             _else = Some(vec![x]);
         }
 
@@ -149,39 +150,39 @@ Atom: ast::Atom = {
     <id:Identifier> "(" <e:CommaList<Expr>> ")" => ast::Atom::Call(ast::Call(id, e)),
 }
 
-Expr: ast::Expr = {
-  "+" <e:FExpr> => e,
-  "-" <e:FExpr> => ast::Expr::Minus(Box::new(e)),
-  <e1:Expr> "+" <e2:FExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Plus, Box::new(e2)),
-  <e1:Expr> "-" <e2:FExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Minus, Box::new(e2)),
-  <e1:Expr> "*" <e2:FExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Times, Box::new(e2)),
-  <e1:Expr> "mod" <e2:FExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Mod, Box::new(e2)),
-  <e1:Expr> "/" <e2:FExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Div, Box::new(e2)),
-  <e: FExpr> => e
+Expr: Span<ast::Expr> = {
+   "+" <e:FExpr> => e,
+  <l:@L> "-" <e:FExpr> <r:@R> => span![ast::Expr::Minus(Box::new(e));l,r],
+  <l:@L> <e1:Expr> "+" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Plus, Box::new(e2));l,r],
+  <l:@L> <e1:Expr> "-" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Minus, Box::new(e2));l,r],
+  <l:@L> <e1:Expr> "*" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Times, Box::new(e2));l,r],
+  <l:@L> <e1:Expr> "mod" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Mod, Box::new(e2));l,r],
+  <l:@L> <e1:Expr> "/" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Div, Box::new(e2));l,r],
+  <e: FExpr> => e,
 }
 
-FExpr: ast::Expr = {
-  <e1:FExpr> "=" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Equals, Box::new(e2)),
-  <e1:FExpr> "<>" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::NotEquals, Box::new(e2)),
-  <e1:FExpr> "<" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Less, Box::new(e2)),
-  <e1:FExpr> ">" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Greater, Box::new(e2)),
-  <e1:FExpr> "<=" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::LessOrEqual, Box::new(e2)),
-  <e1:FExpr> ">=" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::GreaterOrEqual, Box::new(e2)),
-  "not" <e:TExpr> => ast::Expr::Not(Box::new(e)),
-  <e1: TExpr> "and" <e2: TExpr> => ast::Expr::And(Box::new(e1), Box::new(e2)),
-  <e1: TExpr> "or" <e2: TExpr> => ast::Expr::Or(Box::new(e1), Box::new(e2)),
+FExpr: Span<ast::Expr> = {
+  <l:@L> <e1:FExpr> "=" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Equals, Box::new(e2)); l,r],
+  <l:@L> <e1:FExpr> "<>" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::NotEquals, Box::new(e2)); l,r],
+  <l:@L> <e1:FExpr> "<" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Less, Box::new(e2)); l,r],
+  <l:@L> <e1:FExpr> ">" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Greater, Box::new(e2)); l,r],
+  <l:@L> <e1:FExpr> "<=" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::LessOrEqual, Box::new(e2)); l,r],
+  <l:@L> <e1:FExpr> ">=" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::GreaterOrEqual, Box::new(e2)); l,r],
+  <l:@L> "not" <e:TExpr> <r:@R> => span![ast::Expr::Not(Box::new(e)); l,r],
+  <l:@L> <e1: TExpr> "and" <e2: TExpr> <r:@R> => span![ast::Expr::And(Box::new(e1), Box::new(e2)); l,r],
+  <l:@L> <e1: TExpr> "or" <e2: TExpr> <r:@R> => span![ast::Expr::Or(Box::new(e1), Box::new(e2)); l,r],
   "(" <e: Expr> ")" => e,
   <e: TExpr> => e,
 }
 
-TExpr: ast::Expr = {
-  <a:Atom> => ast::Expr::Atom(a),
-  "true" => ast::Expr::True,
-  "false" => ast::Expr::False,
+TExpr: Span<ast::Expr> = {
+  <l:@L> <a:Atom> <r:@R> => span![ast::Expr::Atom(a); l,r],
+  <l:@L> "true" <r:@R> => span![ast::Expr::True; l,r],
+  <l:@L> "false" <r:@R> => span![ast::Expr::False; l,r],
   //"new" <t:TonyType> "[" <e: Expr> "]" => ast::Expr::New(t, Box::new(e)),
-  "nil" => ast::Expr::Nil,
-  <i:IntConst> => ast::Expr::IntConst(i),
-  <c:CharConst> => ast::Expr::CharConst(c),
+  <l:@L> "nil" <r:@R> => span![ast::Expr::Nil; l,r],
+  <l:@L> <i:IntConst> <r:@R> => span![ast::Expr::IntConst(i); l,r],
+  <l:@L> <c:CharConst> <r:@R> => span![ast::Expr::CharConst(c); l,r],
 }
 
 // Hook external lexer:

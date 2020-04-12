@@ -489,7 +489,7 @@ static EXTERNAL_FNS: [extern "C" fn(f64) -> f64; 2] = [putchard, printd];
 /// Entry point of the program; acts as a REPL.
 pub fn main() {
     // use self::inkwell::support::add_symbol;
-    let mut display_lexer_output = true;
+    let mut display_lexer_output = false;
     let mut display_parser_output = false;
     let mut display_compiler_output = false;
 
@@ -555,7 +555,7 @@ pub fn main() {
         // Parse and (optionally) display input
         if display_lexer_output {
             println!(
-                "-> Attempting to parse lexed input: \n{:?}\n",
+                "-> Attempting to parse lexed input: \n{:#?}\n",
                 Lexer::new(input.as_str()).collect::<Vec<LexResult>>()
             );
         }
@@ -563,9 +563,53 @@ pub fn main() {
             Ok(res) => {
                 std::dbg!(res);
             }
-            Err(err) => {
-                println!("{}", err.to_string());
-            }
+            Err(err) => match err {
+                lalrpop_util::ParseError::InvalidToken { ref location } => {
+                    println!(
+                        "{}",
+                        LexError::with_offset(input.to_string(), "Invalid token", *location)
+                    );
+                }
+                lalrpop_util::ParseError::UnrecognizedEOF {
+                    ref location,
+                    ref expected,
+                } => {
+                    println!(
+                        "{}",
+                        LexError::with_offset(input.to_string(), "Unrecognized EOF", *location)
+                    );
+                    println!("Expected tokens: {}", expected.join(", "));
+                }
+                lalrpop_util::ParseError::UnrecognizedToken {
+                    token: (ref l, ref t, ref r),
+                    ref expected,
+                } => {
+                    println!(
+                        "{}",
+                        LexError::with_span(
+                            input.to_string(),
+                            format!("Unrecognized token: \"{}\"", &input[*l..*r]),
+                            (*l, *r)
+                        )
+                    );
+                    println!("Expected tokens: {}", expected.join(", "));
+                }
+                lalrpop_util::ParseError::ExtraToken {
+                    token: (ref l, ref t, ref r),
+                } => {
+                    println!(
+                        "{}",
+                        LexError::with_span(
+                            input.to_string(),
+                            format!("Extra token of type {:?}: \"{}\"", t, &input[*l..*r]),
+                            (*l, *r)
+                        )
+                    );
+                }
+                lalrpop_util::ParseError::User { error: err } => {
+                    println!("{}", err.to_string());
+                }
+            },
         }
         return;
 
