@@ -1,6 +1,6 @@
 use super::*;
 
-lalrpop_mod!(grammar); // synthesized by LALRPOP
+lalrpop_mod!(grammar, "/parser/grammar.rs"); // synthesized by LALRPOP
 
 pub use grammar::*;
 
@@ -74,10 +74,10 @@ impl<'a> Parser<'a> {
     /// an operator and its precedence in binary expressions.
     pub fn new(input: String, op_precedence: &'a mut HashMap<char, i32>) -> Self {
         let mut lexer = Lexer::new(input.as_str());
-        let tokens = lexer.by_ref().collect();
+        let tokens: Result<Vec<(_, Token, _)>, LexError> = lexer.by_ref().collect();
 
         Parser {
-            tokens: tokens,
+            tokens: tokens.unwrap().into_iter().map(|(_, t, _)| t).collect(),
             prec: op_precedence,
             pos: 0,
         }
@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
     /// Parses the prototype of a function, whether external or user-defined.
     fn parse_prototype(&mut self) -> Result<Prototype, &'static str> {
         let (id, is_operator, precedence) = match self.curr() {
-            Ident(id) => {
+            Identifier(id) => {
                 self.advance()?;
 
                 (id, false, 0)
@@ -227,7 +227,7 @@ impl<'a> Parser<'a> {
 
         loop {
             match self.curr() {
-                Ident(name) => args.push(name),
+                Identifier(name) => args.push(name),
                 _ => return Err("Expected identifier in parameter declaration."),
             }
 
@@ -331,7 +331,7 @@ impl<'a> Parser<'a> {
     /// Parses an expression that starts with an identifier (either a variable or a function call).
     fn parse_id_expr(&mut self) -> Result<Expr, &'static str> {
         let id = match self.curr() {
-            Ident(id) => id,
+            Identifier(id) => id,
             _ => return Err("Expected identifier."),
         };
 
@@ -464,7 +464,7 @@ impl<'a> Parser<'a> {
         self.advance()?;
 
         let name = match self.curr() {
-            Ident(n) => n,
+            Identifier(n) => n,
             _ => return Err("Expected identifier in for loop."),
         };
 
@@ -525,7 +525,7 @@ impl<'a> Parser<'a> {
         // parse variables
         loop {
             let name = match self.curr() {
-                Ident(name) => name,
+                Identifier(name) => name,
                 _ => return Err("Expected identifier in 'var..in' declaration."),
             };
 
@@ -567,7 +567,7 @@ impl<'a> Parser<'a> {
     /// Parses a primary expression (an identifier, a number or a parenthesized expression).
     fn parse_primary(&mut self) -> Result<Expr, &'static str> {
         match self.curr() {
-            Ident(_) => self.parse_id_expr(),
+            Identifier(_) => self.parse_id_expr(),
             Number(_) => self.parse_nb_expr(),
             LParen => self.parse_paren_expr(),
             If => self.parse_conditional_expr(),

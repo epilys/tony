@@ -541,8 +541,6 @@ pub fn main() {
         } else if input.chars().all(char::is_whitespace) {
             continue;
         }
-        std::dbg!(parser::ProgramParser::new().parse(Lexer::new(input.as_str())));
-        return;
 
         // Build precedence map
         let mut prec = HashMap::with_capacity(6);
@@ -558,9 +556,18 @@ pub fn main() {
         if display_lexer_output {
             println!(
                 "-> Attempting to parse lexed input: \n{:?}\n",
-                Lexer::new(input.as_str()).collect::<Vec<Token>>()
+                Lexer::new(input.as_str()).collect::<Vec<LexResult>>()
             );
         }
+        match parser::ProgramParser::new().parse(Lexer::new(input.as_str())) {
+            Ok(res) => {
+                std::dbg!(res);
+            }
+            Err(err) => {
+                println!("{}", err.to_string());
+            }
+        }
+        return;
 
         // make module
         let module = context.create_module("tmp");

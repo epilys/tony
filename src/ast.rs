@@ -26,7 +26,7 @@ pub struct StringLiteral(pub String);
 #[derive(Debug)]
 pub struct CharConst(pub char);
 #[derive(Debug)]
-pub struct IntConst(pub i64);
+pub struct IntConst(pub f64);
 
 #[derive(Debug)]
 pub struct Program(pub Vec<FuncDef>);
@@ -50,7 +50,7 @@ pub struct VarDef {
     pub id: Identifier,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TonyType {
     Int,
     Bool,
@@ -65,6 +65,17 @@ pub enum Stmt {
     Simple(Simple),
     Exit,
     Return(Box<Expr>),
+    Control(StmtType),
+}
+
+#[derive(Debug)]
+pub enum StmtType {
+    If {
+        condition: Box<Expr>,
+        body: Vec<Stmt>,
+        _else: Vec<Stmt>,
+    },
+    For,
 }
 
 #[derive(Debug)]
@@ -95,6 +106,8 @@ pub enum Expr {
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
+    Minus(Box<Expr>),
+    Op(Box<Expr>, Operator, Box<Expr>),
     New(TonyType, Box<Expr>),
     Nil,
 }
@@ -103,4 +116,19 @@ pub enum Expr {
 pub enum Decl {
     Func(FuncDef),
     Var(VarDef),
+}
+
+#[derive(Debug)]
+pub enum Operator {
+    Equals,
+    NotEquals,
+    Less,
+    Greater,
+    LessOrEqual,
+    GreaterOrEqual,
+    Div,
+    Mod,
+    Times,
+    Plus,
+    Minus,
 }

@@ -5,7 +5,7 @@ use super::*;
 #[derive(Debug, Clone)]
 pub enum Token {
     // Τις λέξεις κλειδιά, οι οποίες είναι οι παρακάτω:
-    // and end list ref char false new skip decl for nil tail def head nil?  true else if not elsif int or
+    // and end list ref char false new skip decl for nil tail def head nil?  true else if not elif int or
     And,
     End,
     List,
@@ -27,7 +27,8 @@ pub enum Token {
     Else,
     If,
     Not,
-    Elsif,
+    Elif,
+    Mod,
     Int,
     Bool,
     Or,
@@ -64,7 +65,8 @@ pub enum Token {
     Binary,
     EOF,
     Extern,
-    Ident(String),
+    Identifier(String),
+    StringLiteral(String),
     In,
     Number(f64),
     Op(char),
@@ -73,31 +75,69 @@ pub enum Token {
     Var,
 }
 
+impl std::fmt::Display for Token {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(fmt, "{:?}", self)
+    }
+}
+
 /// Defines an error encountered by the `Lexer`.
+#[derive(Debug)]
 pub struct LexError {
-    pub error: &'static str,
-    pub index: usize,
+    pub error: String,
+    pub source_code: String,
+    pub index: (usize, usize),
 }
 
 impl LexError {
-    pub fn new(msg: &'static str) -> LexError {
+    pub fn new<I: Into<String>>(source_code: String, msg: I) -> LexError {
         LexError {
-            error: msg,
-            index: 0,
+            error: msg.into(),
+            source_code,
+            index: (0, 0),
         }
     }
 
-    pub fn with_index(msg: &'static str, index: usize) -> LexError {
+    pub fn with_index<I: Into<String>>(
+        source_code: String,
+        msg: I,
+        index: (usize, usize),
+    ) -> LexError {
         LexError {
-            error: msg,
-            index: index,
+            error: msg.into(),
+            source_code,
+            index,
         }
+    }
+}
+
+impl std::fmt::Display for LexError {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let line_num_s = (self.index.0 + 1).to_string();
+        let indent_length = line_num_s.len() + 3;
+        let indent = " ".repeat(indent_length);
+        write!(
+            fmt,
+            "Line {}, Column {}: {}\n{indent}|\n   {line_num_s}|{}\n{indent}|{}{}",
+            self.index.0 + 1,
+            self.index.1 + 1,
+            &self.error,
+            self.source_code
+                .lines()
+                .nth(self.index.0)
+                .unwrap()
+                .trim_right(),
+            " ".repeat(self.index.1),
+            "^",
+            line_num_s = line_num_s,
+            indent = indent,
+        )
     }
 }
 
 /// Defines the result of a lexing operation; namely a
 /// `Token` on success, or a `LexError` on failure.
-pub type LexResult = Result<Token, LexError>;
+pub type LexResult = Result<(usize, Token, usize), LexError>;
 
 /// Defines a lexer which transforms an input `String` into
 /// a `Token` stream.
@@ -105,6 +145,8 @@ pub struct Lexer<'a> {
     input: &'a str,
     chars: Box<Peekable<Chars<'a>>>,
     pos: usize,
+    col: usize,
+    line: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -114,6 +156,8 @@ impl<'a> Lexer<'a> {
             input: input,
             chars: Box::new(input.chars().peekable()),
             pos: 0,
+            col: 0,
+            line: 0,
         }
     }
 
@@ -123,6 +167,13 @@ impl<'a> Lexer<'a> {
         let src = self.input;
 
         let mut pos = self.pos;
+
+        macro_rules! advance_pos {
+            ($ch:expr) => {{
+                pos += $ch.len_utf8();
+                self.col += 1;
+            }};
+        }
 
         // Skip whitespaces
         loop {
@@ -135,16 +186,21 @@ impl<'a> Lexer<'a> {
                 if ch.is_none() {
                     self.pos = pos;
 
-                    return Ok(Token::EOF);
+                    return Ok((pos, Token::EOF, pos));
                 }
 
                 if !ch.unwrap().is_whitespace() {
                     break;
                 }
+                let ch = *ch.unwrap();
+                advance_pos!(ch);
+                if ch == '\n' {
+                    self.line += 1;
+                    self.col = 0;
+                }
             }
 
             chars.next();
-            pos += 1;
         }
 
         let start = pos;
@@ -152,73 +208,79 @@ impl<'a> Lexer<'a> {
         let follows: Option<char> = chars.peek().map(|&c| c);
 
         if next.is_none() {
-            return Ok(Token::EOF);
+            return Ok((start, Token::EOF, start));
         }
 
-        pos += 1;
+        let c = next.unwrap();
+        advance_pos!(c);
 
-        println!("Next char is {:?} {:?}", next, &src[start..pos]);
+        println!("Next char is {:?} {:?}", next, src[start..].chars().next());
         // Actually get the next token.
-        let result = match next.unwrap() {
-            '+' => Ok(Token::Plus),
-            '-' => Ok(Token::Minus),
-            '*' => Ok(Token::Times),
-            '/' => Ok(Token::Backslash),
-            '#' => Ok(Token::Octothorpe),
-            '=' => Ok(Token::Equals),
+        let result = match c {
+            '+' => Ok((start, Token::Plus, pos)),
+            '-' => Ok((start, Token::Minus, pos)),
+            '*' => Ok((start, Token::Times, pos)),
+            '/' => Ok((start, Token::Backslash, pos)),
+            '#' => Ok((start, Token::Octothorpe, pos)),
+            '=' => Ok((start, Token::Equals, pos)),
             '%' => {
                 // Comment
                 loop {
-                    let ch = chars.next();
-                    pos += 1;
+                    let ch = match chars.next() {
+                        Some(ch) => ch,
+                        None => break,
+                    };
+                    advance_pos!(ch);
 
-                    if ch == Some('\n') {
+                    if ch == '\n' {
+                        self.line += 1;
+                        self.col = 0;
                         break;
                     }
                 }
 
-                Ok(Token::Comment)
+                Ok((start, Token::Comment, pos))
             }
             '<' if follows == Some('*') => todo!(),
             '*' if follows == Some('>') => todo!(),
             '<' if follows == Some('>') => {
                 chars.next();
-                pos += 1;
-                Ok(Token::NotEquals)
+                advance_pos!(follows.unwrap());
+                Ok((start, Token::NotEquals, pos))
             }
             '<' if follows == Some('=') => {
                 chars.next();
-                pos += 1;
-                Ok(Token::Lequals)
+                advance_pos!(follows.unwrap());
+                Ok((start, Token::Lequals, pos))
             }
             '>' if follows == Some('=') => {
                 chars.next();
-                pos += 1;
-                Ok(Token::Gequals)
+                advance_pos!(follows.unwrap());
+                Ok((start, Token::Gequals, pos))
             }
-            '<' => Ok(Token::Lthan),
-            '>' => Ok(Token::Gthan),
+            '<' => Ok((start, Token::Lthan, pos)),
+            '>' => Ok((start, Token::Gthan, pos)),
             // Διαχωριστές
-            '(' => Ok(Token::LParen),
-            ')' => Ok(Token::RParen),
-            '[' => Ok(Token::LSqBracket),
-            ']' => Ok(Token::RSqBracket),
-            ',' => Ok(Token::Comma),
-            ';' => Ok(Token::Semicolon),
+            '(' => Ok((start, Token::LParen, pos)),
+            ')' => Ok((start, Token::RParen, pos)),
+            '[' => Ok((start, Token::LSqBracket, pos)),
+            ']' => Ok((start, Token::RSqBracket, pos)),
+            ',' => Ok((start, Token::Comma, pos)),
+            ';' => Ok((start, Token::Semicolon, pos)),
             ':' if follows == Some('=') => {
                 chars.next();
-                pos += 1;
-                Ok(Token::Assignment)
+                advance_pos!(follows.unwrap());
+                Ok((start, Token::Assignment, pos))
             }
-            ':' => Ok(Token::Colon),
+            ':' => Ok((start, Token::Colon, pos)),
 
-            '.' | '0'..='9' => {
+            '0'..='9' => {
                 // Parse number literal
                 println!("Parse number literal {:?}", &src[start..pos]);
                 loop {
                     let ch = match chars.peek() {
                         Some(ch) => *ch,
-                        None => return Ok(Token::EOF),
+                        None => break,
                     };
                     println!("let ch = {:?}", ch);
 
@@ -228,11 +290,11 @@ impl<'a> Lexer<'a> {
                     }
 
                     println!("Next char is {:?}", chars.next());
-                    pos += 1;
+                    advance_pos!(ch);
                 }
                 println!("parse number {:?}", &src[start..pos]);
 
-                Ok(Token::Number(src[start..pos].parse().unwrap()))
+                Ok((start, Token::Number(src[start..pos].parse().unwrap()), pos))
             }
 
             'a'..='z' | 'A'..='Z' | '_' => {
@@ -241,7 +303,7 @@ impl<'a> Lexer<'a> {
                 loop {
                     let ch = match chars.peek() {
                         Some(ch) => *ch,
-                        None => return Ok(Token::EOF),
+                        None => break,
                     };
 
                     // A word-like identifier only contains underscores and alphanumeric characters.
@@ -250,53 +312,83 @@ impl<'a> Lexer<'a> {
                     }
 
                     chars.next();
-                    pos += 1;
+                    advance_pos!(ch);
                 }
                 println!("token = {:?}", &src[start..pos]);
 
                 match &src[start..pos] {
-                    "def" => Ok(Token::Def),
-                    "extern" => Ok(Token::Extern),
-                    "if" => Ok(Token::If),
-                    "then" => Ok(Token::Then),
-                    "else" => Ok(Token::Else),
-                    "for" => Ok(Token::For),
-                    "var" => Ok(Token::Var),
-                    "decl" => Ok(Token::Decl),
-                    "and" => Ok(Token::And),
-                    "end" => Ok(Token::End),
-                    "list" => Ok(Token::List),
-                    "ref" => Ok(Token::Ref),
-                    "char" => Ok(Token::Char),
-                    "false" => Ok(Token::False),
-                    "new" => Ok(Token::New),
-                    "skip" => Ok(Token::Skip),
-                    "decl" => Ok(Token::Decl),
-                    "for" => Ok(Token::For),
-                    "nil" => Ok(Token::Nil),
-                    "nil?" => Ok(Token::NilQ),
-                    "tail" => Ok(Token::Tail),
-                    "def" => Ok(Token::Def),
-                    "head" => Ok(Token::Head),
-                    "true" => Ok(Token::True),
-                    "else" => Ok(Token::Else),
-                    "if" => Ok(Token::If),
-                    "not" => Ok(Token::Not),
-                    "elsif" => Ok(Token::Elsif),
-                    "int" => Ok(Token::Int),
-                    "bool" => Ok(Token::Bool),
-                    "or" => Ok(Token::Or),
-                    "exit" => Ok(Token::Exit),
-                    "return" => Ok(Token::Return),
+                    "def" => Ok((start, Token::Def, pos)),
+                    "extern" => Ok((start, Token::Extern, pos)),
+                    "if" => Ok((start, Token::If, pos)),
+                    "then" => Ok((start, Token::Then, pos)),
+                    "else" => Ok((start, Token::Else, pos)),
+                    "for" => Ok((start, Token::For, pos)),
+                    "var" => Ok((start, Token::Var, pos)),
+                    "decl" => Ok((start, Token::Decl, pos)),
+                    "and" => Ok((start, Token::And, pos)),
+                    "end" => Ok((start, Token::End, pos)),
+                    "list" => Ok((start, Token::List, pos)),
+                    "ref" => Ok((start, Token::Ref, pos)),
+                    "char" => Ok((start, Token::Char, pos)),
+                    "false" => Ok((start, Token::False, pos)),
+                    "new" => Ok((start, Token::New, pos)),
+                    "skip" => Ok((start, Token::Skip, pos)),
+                    "decl" => Ok((start, Token::Decl, pos)),
+                    "for" => Ok((start, Token::For, pos)),
+                    "nil" => Ok((start, Token::Nil, pos)),
+                    "nil?" => Ok((start, Token::NilQ, pos)),
+                    "tail" => Ok((start, Token::Tail, pos)),
+                    "def" => Ok((start, Token::Def, pos)),
+                    "head" => Ok((start, Token::Head, pos)),
+                    "true" => Ok((start, Token::True, pos)),
+                    "else" => Ok((start, Token::Else, pos)),
+                    "if" => Ok((start, Token::If, pos)),
+                    "mod" => Ok((start, Token::Mod, pos)),
+                    "not" => Ok((start, Token::Not, pos)),
+                    "elif" => Ok((start, Token::Elif, pos)),
+                    "int" => Ok((start, Token::Int, pos)),
+                    "bool" => Ok((start, Token::Bool, pos)),
+                    "or" => Ok((start, Token::Or, pos)),
+                    "exit" => Ok((start, Token::Exit, pos)),
+                    "return" => Ok((start, Token::Return, pos)),
 
-                    ident => Ok(Token::Ident(ident.to_string())),
+                    ident => Ok((start, Token::Identifier(ident.to_string()), pos)),
                 }
             }
-            '”' | '"' => todo!(),
+            quot @ '”' | quot @ '"' => {
+                // Parse string constant
+                println!("Parse string constant");
+                let mut prev = quot;
+                loop {
+                    let ch = match chars.peek() {
+                        Some(ch) => *ch,
+                        None => break,
+                    };
+                    if ch == quot && prev != '\\' {
+                        chars.next();
+                        prev = ch;
+                        break;
+                    } else if ch == '\n' {
+                        return Err(LexError::with_index(
+                            self.input.to_string(),
+                            format!("Encountered new line while parsing string literal",),
+                            (self.line, self.col),
+                        ));
+                    }
+
+                    chars.next();
+                    prev = ch;
+                    advance_pos!(ch);
+                }
+                let s = src[start + quot.len_utf8()..pos].to_string();
+                advance_pos!(prev);
+                Ok((start, Token::StringLiteral(s), pos))
+            }
 
             op => {
+                // FIXME
                 // Parse operator
-                Ok(Token::Op(op))
+                Ok((start, Token::Op(op), pos))
             }
         };
 
@@ -308,14 +400,16 @@ impl<'a> Lexer<'a> {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Token;
+    type Item = Result<(usize, Token, usize), LexError>;
 
     /// Lexes the next `Token` and returns it.
     /// On EOF or failure, `None` will be returned.
     fn next(&mut self) -> Option<Self::Item> {
         match self.lex() {
-            Ok(EOF) | Err(_) => None,
-            Ok(token) => Some(token),
+            Ok((_, EOF, _)) => None,
+            Ok((_, Token::Comment, _)) => self.next(),
+            ok @ Ok(_) => Some(ok),
+            err @ Err(_) => Some(err),
         }
     }
 }

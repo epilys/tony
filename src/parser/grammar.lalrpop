@@ -1,6 +1,5 @@
 use crate::ast;
 use crate::lexer;
-use std::str::FromStr;
 use std::iter::FromIterator;
 
 grammar;
@@ -9,29 +8,74 @@ pub Program: ast::Program = {
     <func_defs:FuncDef*> => ast::Program(Vec::from_iter(func_defs.into_iter())),
 };
 
-Identifier: ast::Identifier = <s:Ident> => ast::Identifier(s);
+// Constants
+Identifier: ast::Identifier = <s:IdentifierString> => ast::Identifier(s);
+CharConst: ast::CharConst = <c:CChar> => ast::CharConst(c);
+IntConst: ast::IntConst = <i:Number> => ast::IntConst(i);
 
 FuncDef: ast::FuncDef = {
-  "def" <header:Formal> "(" <args:Formal*> ")" ":" <decls:Decl*> <stmts:Stmt*> "end" => {
+  "def" <header:Header> ":" <decls:Decl*> <stmts:Stmt*> "end" => {
     ast::FuncDef {
-        header: (header, Vec::from_iter(args.into_iter())),
+        header,
         declarations: Vec::from_iter(decls.into_iter()),
         statements: Vec::from_iter(stmts.into_iter()),
     }
   },
 };
 
-Formal: ast::Formal = {
-  <_ref:"ref"?> <t:TonyType?> <id:Identifier> => {
-    ast::Formal {
-        is_ref: _ref.is_some(),
-        var: ast::VarDef {
-          tony_type: t.unwrap_or(ast::TonyType::Unit),
-          id,
+Header: (ast::Formal, Vec<ast::Formal>) = {
+   <header_type:TonyType?> <header_ident:Identifier> "(" <args:SemicolonList<FormalList>> ")" => {
+     (ast::Formal {
+          is_ref: false,
+          var: ast::VarDef {
+            tony_type: header_type.unwrap_or(ast::TonyType::Unit),
+            id: header_ident,
+          },
+        }, Vec::from_iter(args.into_iter().flatten()))
+   }
+}
+
+FormalList: Vec<ast::Formal> = {
+  <_ref:"ref"?> <t:TonyType> <ids:CommaList<Identifier>> => {
+    ids.into_iter().map(|id| ast::Formal { is_ref: _ref.is_some(), var: ast::VarDef { tony_type: t.clone(), id, } }).collect::<Vec<ast::Formal>>()
+  }
+}
+
+DelimNoTrailing<T, Delimeter>: Vec<T> = {
+    <v:(<T> Delimeter)*> <e:T> => {
+        let mut v = v;
+        v.push(e);
+        v
+    }
+}
+
+Delim<T, Delimeter>: Vec<T> = {
+    <v:(<T> Delimeter)*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
         }
     }
-  },
-};
+}
+
+CommaList<T>: Vec<T> = {
+    Delim<T, ","> => <>
+}
+
+CommaNoTrailingList<T>: Vec<T> = {
+    DelimNoTrailing<T, ","> => <>
+}
+
+
+SemicolonList<T>: Vec<T> = {
+    Delim<T, ";"> => <>
+}
+
+SemicolonNoTrailingList<T>: Vec<T> = {
+    DelimNoTrailing<T, ";"> => <>
+}
 
 Decl: ast::Decl = {
   <v:VarDef> => {
@@ -52,6 +96,7 @@ VarDef: ast::VarDef = {
 };
 
 TonyType: ast::TonyType = {
+  <t: ETonyType> => t,
   "int" => {
     ast::TonyType::Int
   },
@@ -63,31 +108,69 @@ TonyType: ast::TonyType = {
   },
 }
 
+
+ETonyType: ast::TonyType = {
+  "list" "[" <t: TonyType> "]" => ast::TonyType::List(Box::new(t)),
+  <t: TonyType> "[" "]" => ast::TonyType::Array(Box::new(t)),
+}
+
+
 Stmt: ast::Stmt = {
   <s:Simple> => ast::Stmt::Simple(s),
   "exit" => ast::Stmt::Exit,
   "return" <e:Expr> => ast::Stmt::Return(Box::new(e)),
+  IfStatement,
+  //ForStmt,
 }
+
+IfStatement: ast::Stmt = {
+    "if" <condition:Expr> ":" <body:Stmt+> <elifs:("elif" <Expr> ":" <Stmt+>)*> <_else:("else" ":" <Stmt+>)?> "end" => {
+        let mut _else = _else;
+
+        // Elifs:
+        for e in elifs.into_iter().rev() {
+            let x = ast::Stmt::Control(ast::StmtType::If { condition: Box::new(e.0), body: e.1, _else: _else.unwrap_or(vec![]) });
+            _else = Some(vec![x]);
+        }
+
+        ast::Stmt::Control(ast::StmtType::If { condition: Box::new(condition), body, _else: _else.unwrap_or(vec![])})
+    },
+};
 
 Simple: ast::Simple = {
     "skip" => ast::Simple::Skip,
-    <id:Identifier> "(" <e:("," <Expr>)+> ")" => ast::Simple::Call(ast::Call(id, e.into_iter().collect::<Vec<ast::Expr>>())),
-    <a:Atom> ":" "=" <e:Expr> => ast::Simple::Assignment(a, Box::new(e)),
+    <id:Identifier> "(" <e:CommaList<Expr>> ")" => ast::Simple::Call(ast::Call(id, e)),
+    <a:Atom> ":=" <e:Expr> => ast::Simple::Assignment(a, Box::new(e)),
 }
 
 Atom: ast::Atom = {
     <id:Identifier> => ast::Atom::Id(id),
-    <id:Identifier> "(" <e:("," <Expr>)+> ")" => ast::Atom::Call(ast::Call(id, e.into_iter().collect::<Vec<ast::Expr>>())),
+    <s:StringLiteral> => ast::Atom::StringLiteral(ast::StringLiteral(s)),
+    <id:Identifier> "(" <e:CommaList<Expr>> ")" => ast::Atom::Call(ast::Call(id, e)),
 }
 
 Expr: ast::Expr = {
-  "not" <e:FExpr> => ast::Expr::Not(Box::new(e)),
+  "+" <e:FExpr> => e,
+  "-" <e:FExpr> => ast::Expr::Minus(Box::new(e)),
+  <e1:Expr> "+" <e2:FExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Plus, Box::new(e2)),
+  <e1:Expr> "-" <e2:FExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Minus, Box::new(e2)),
+  <e1:Expr> "*" <e2:FExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Times, Box::new(e2)),
+  <e1:Expr> "mod" <e2:FExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Mod, Box::new(e2)),
+  <e1:Expr> "/" <e2:FExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Div, Box::new(e2)),
   <e: FExpr> => e
 }
 
 FExpr: ast::Expr = {
+  <e1:FExpr> "=" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Equals, Box::new(e2)),
+  <e1:FExpr> "<>" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::NotEquals, Box::new(e2)),
+  <e1:FExpr> "<" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Less, Box::new(e2)),
+  <e1:FExpr> ">" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::Greater, Box::new(e2)),
+  <e1:FExpr> "<=" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::LessOrEqual, Box::new(e2)),
+  <e1:FExpr> ">=" <e2:TExpr> => ast::Expr::Op(Box::new(e1), ast::Operator::GreaterOrEqual, Box::new(e2)),
+  "not" <e:TExpr> => ast::Expr::Not(Box::new(e)),
   <e1: TExpr> "and" <e2: TExpr> => ast::Expr::And(Box::new(e1), Box::new(e2)),
   <e1: TExpr> "or" <e2: TExpr> => ast::Expr::Or(Box::new(e1), Box::new(e2)),
+  "(" <e: Expr> ")" => e,
   <e: TExpr> => e,
 }
 
@@ -95,14 +178,22 @@ TExpr: ast::Expr = {
   <a:Atom> => ast::Expr::Atom(a),
   "true" => ast::Expr::True,
   "false" => ast::Expr::False,
-  "new" <t:TonyType> "[" <e: Expr> "]" => ast::Expr::New(t, Box::new(e)),
+  //"new" <t:TonyType> "[" <e: Expr> "]" => ast::Expr::New(t, Box::new(e)),
   "nil" => ast::Expr::Nil,
+  <i:IntConst> => ast::Expr::IntConst(i),
+  <c:CharConst> => ast::Expr::CharConst(c),
 }
 
 // Hook external lexer:
 extern {
+    type Location = usize;
+    type Error = lexer::LexError;
+
     enum lexer::Token {
-      Ident => lexer::Token::Ident(<String>),
+      IdentifierString => lexer::Token::Identifier(<String>),
+      StringLiteral => lexer::Token::StringLiteral(<String>),
+      CChar => lexer::Token::CChar(<char>),
+      Number => lexer::Token::Number(<f64>),
       "def" => lexer::Token::Def,
       "int" => lexer::Token::Int,
       "bool" => lexer::Token::Bool,
@@ -117,10 +208,27 @@ extern {
       "false" => lexer::Token::False,
       "new" => lexer::Token::New,
       "nil" => lexer::Token::Nil,
+      "list" => lexer::Token::List,
+      "if" => lexer::Token::If,
+      "elif" => lexer::Token::Elif,
+      "else" => lexer::Token::Else,
       "return" => lexer::Token::Return,
       "skip" => lexer::Token::Skip,
+      "+" => lexer::Token::Plus,
+      "-" => lexer::Token::Minus,
+      "*" => lexer::Token::Times,
+      "=" => lexer::Token::Equals,
+      "<>" => lexer::Token::NotEquals,
+      "<" => lexer::Token::Lthan,
+      ">" => lexer::Token::Gthan,
+      "<=" => lexer::Token::Lequals,
+      ">=" => lexer::Token::Gequals,
+      "mod" => lexer::Token::Mod,
+      "/" => lexer::Token::Backslash,
       "," => lexer::Token::Comma,
       ":" => lexer::Token::Colon,
+      ":=" => lexer::Token::Assignment,
+      ";" => lexer::Token::Semicolon,
       "=" => lexer::Token::Equals,
       "("   => lexer::Token::LParen,
       ")"   => lexer::Token::RParen,
