@@ -1,41 +1,28 @@
-/*
- * meli -
- *
- * Copyright  Manos Pitsidianakis
- *
- * This file is part of meli.
- *
- * meli is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * meli is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with meli. If not, see <http://www.gnu.org/licenses/>.
- */
-
-#[derive(Debug, Clone)]
+use std::fmt;
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct Identifier(pub String);
-#[derive(Debug, Clone)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct StringLiteral(pub String);
-#[derive(Debug, Clone)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct CharConst(pub char);
 #[derive(Debug, Clone)]
-pub struct IntConst(pub f64);
+pub struct IntConst(pub f64, pub String);
 
-#[derive(Debug, Clone)]
-pub struct Span<T: std::fmt::Debug + Clone> {
-    left: usize,
-    right: usize,
+impl std::cmp::PartialEq for IntConst {
+    fn eq(&self, other: &Self) -> bool {
+        self.1 == other.1
+    }
+}
+impl std::cmp::Eq for IntConst {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Span<T: std::fmt::Debug + Clone + PartialEq + Eq> {
+    pub left: usize,
+    pub right: usize,
     inner: T,
 }
 
-impl<T: std::fmt::Debug + Clone> Span<T> {
+impl<T: std::fmt::Debug + Clone + PartialEq + Eq> Span<T> {
     pub fn into_inner(&self) -> &T {
         &self.inner
     }
@@ -55,29 +42,46 @@ macro_rules! span {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Program(pub Vec<Span<FuncDef>>);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuncDef {
     pub header: (Formal, Vec<Formal>),
     pub declarations: Vec<Span<Decl>>,
     pub statements: Vec<Span<Stmt>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Formal {
     pub is_ref: bool,
     pub var: VarDef,
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for Formal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}{:?}", if self.is_ref { "ref " } else { "" }, self.var)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone)]
 pub struct VarDef {
     pub tony_type: Span<TonyType>,
     pub id: Span<Identifier>,
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for VarDef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:?} {:?}",
+            self.tony_type.into_inner(),
+            self.id.into_inner()
+        )
+    }
+}
+
+#[derive(PartialEq, Eq, Clone)]
 pub enum TonyType {
     Int,
     Bool,
@@ -87,7 +91,21 @@ pub enum TonyType {
     List(Box<Span<TonyType>>),
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for TonyType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use TonyType::*;
+        match self {
+            Int => write!(f, "int"),
+            Bool => write!(f, "bool"),
+            Char => write!(f, "char"),
+            Unit => write!(f, "()"),
+            Array(inner) => write!(f, "array {:?}[]", inner.into_inner()),
+            List(inner) => write!(f, "list {:?}[]", inner.into_inner()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
     Simple(Simple),
     Exit,
@@ -95,7 +113,7 @@ pub enum Stmt {
     Control(StmtType),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StmtType {
     If {
         condition: Box<Span<Expr>>,
@@ -105,17 +123,53 @@ pub enum StmtType {
     For,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Simple {
     Skip,
     Call(Call),
     Assignment(Atom, Box<Span<Expr>>),
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for Simple {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Simple::Skip => write!(f, "skip"),
+            Simple::Call(call) => call.fmt(f),
+            Simple::Assignment(a, expr) => {
+                let expr = expr.into_inner();
+
+                write!(f, "{:?} := {:?}", a, expr)
+            }
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct Call(pub Span<Identifier>, pub Vec<Span<Expr>>);
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for Call {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let Call(Span { ref inner, .. }, ref arg_spans) = self;
+        write!(
+            f,
+            "{:?}({})",
+            inner,
+            arg_spans
+                .iter()
+                .map(Span::into_inner)
+                .map(|expr| format!("{:?}", expr))
+                .fold(String::new(), |mut acc, el| {
+                    if !acc.is_empty() {
+                        acc.push_str(", ");
+                    }
+                    acc.extend(format!("{:?}", el).chars());
+                    acc
+                })
+        )
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub enum Atom {
     Id(Span<Identifier>),
     StringLiteral(StringLiteral),
@@ -123,7 +177,18 @@ pub enum Atom {
     Call(Call),
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for Atom {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Atom::Id(Span { inner: ident, .. }) => ident.fmt(f),
+            Atom::StringLiteral(lit) => lit.fmt(f),
+            Atom::AtomIndex(sp) => sp.into_inner().fmt(f),
+            Atom::Call(call) => call.fmt(f),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Atom(Atom),
     IntConst(IntConst),
@@ -139,13 +204,13 @@ pub enum Expr {
     Nil,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decl {
     Func(Span<FuncDef>),
     Var(VarDef),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operator {
     Equals,
     NotEquals,

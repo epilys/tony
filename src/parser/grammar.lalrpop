@@ -1,5 +1,6 @@
 use crate::ast::{self, Span};
 use crate::lexer;
+use crate::TonyError;
 use crate::span;
 use std::iter::FromIterator;
 
@@ -12,7 +13,7 @@ pub Program: ast::Program = {
 // Constants
 Identifier: Span<ast::Identifier> = <l:@L> <s:IdentifierString> <r:@R> => span![ast::Identifier(s); l,r];
 CharConst: ast::CharConst = <c:CChar> => ast::CharConst(c);
-IntConst: ast::IntConst = <i:Number> => ast::IntConst(i);
+IntConst: ast::IntConst = <i:Number> => ast::IntConst(i.0, i.1);
 
 FuncDef: ast::Span<ast::FuncDef> = {
   <l:@L> "def" <header:Header> ":" <decls:Decl*> <stmts:Stmt*> "end" <r:@R> => {
@@ -188,13 +189,13 @@ TExpr: Span<ast::Expr> = {
 // Hook external lexer:
 extern {
     type Location = usize;
-    type Error = lexer::LexError;
+    type Error = TonyError;
 
     enum lexer::Token {
       IdentifierString => lexer::Token::Identifier(<String>),
       StringLiteral => lexer::Token::StringLiteral(<String>),
       CChar => lexer::Token::CChar(<char>),
-      Number => lexer::Token::Number(<f64>),
+      Number => lexer::Token::Number(<f64>, <String>),
       "def" => lexer::Token::Def,
       "int" => lexer::Token::Int,
       "bool" => lexer::Token::Bool,

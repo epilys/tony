@@ -74,7 +74,7 @@ impl<'a> Parser<'a> {
     /// an operator and its precedence in binary expressions.
     pub fn new(input: String, op_precedence: &'a mut HashMap<char, i32>) -> Self {
         let mut lexer = Lexer::new(input.as_str());
-        let tokens: Result<Vec<(_, Token, _)>, LexError> = lexer.by_ref().collect();
+        let tokens: Result<Vec<(_, Token, _)>, TonyError> = lexer.by_ref().collect();
 
         Parser {
             tokens: tokens.unwrap().into_iter().map(|(_, t, _)| t).collect(),
@@ -172,7 +172,7 @@ impl<'a> Parser<'a> {
 
                 name.push(op);
 
-                let prec = if let Number(prec) = self.curr() {
+                let prec = if let Number(prec, _) = self.curr() {
                     self.advance()?;
 
                     prec as usize
@@ -299,7 +299,7 @@ impl<'a> Parser<'a> {
     fn parse_nb_expr(&mut self) -> Result<Expr, &'static str> {
         // Simply convert Token::Number to Expr::Number
         match self.curr() {
-            Number(nb) => {
+            Number(nb, _) => {
                 self.advance();
                 Ok(Expr::Number(nb))
             }
@@ -568,7 +568,7 @@ impl<'a> Parser<'a> {
     fn parse_primary(&mut self) -> Result<Expr, &'static str> {
         match self.curr() {
             Identifier(_) => self.parse_id_expr(),
-            Number(_) => self.parse_nb_expr(),
+            Number(_, _) => self.parse_nb_expr(),
             LParen => self.parse_paren_expr(),
             If => self.parse_conditional_expr(),
             For => self.parse_for_expr(),

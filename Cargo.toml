@@ -13,3 +13,4 @@ lalrpop = "0.18.1"
 [dependencies]
 lalrpop-util = "0.18.1"
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "llvm8-0" }
+uuid = { version = "0.7.4", features = ["v4"] }

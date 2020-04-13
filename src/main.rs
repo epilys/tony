@@ -27,11 +27,14 @@ use self::inkwell::module::Module;
 use self::inkwell::passes::PassManager;
 use self::inkwell::types::BasicTypeEnum;
 use self::inkwell::values::{BasicValueEnum, FloatValue, FunctionValue, PointerValue};
-use self::inkwell::{FloatPredicate, OptimizationLevel};
+use self::inkwell::FloatPredicate; //, OptimizationLevel};
 
 use crate::Token::*;
 #[macro_use]
 extern crate lalrpop_util;
+
+mod error;
+pub use error::*;
 
 mod ast;
 
@@ -40,6 +43,8 @@ use lexer::*;
 
 mod parser;
 use parser::*;
+
+mod symbols;
 
 const ANONYMOUS_FUNCTION_NAME: &str = "anonymous";
 
@@ -486,88 +491,178 @@ pub extern "C" fn printd(x: f64) -> f64 {
 #[used]
 static EXTERNAL_FNS: [extern "C" fn(f64) -> f64; 2] = [putchard, printd];
 
+struct RunConfig {
+    display_lexer_output: bool,
+    display_parser_output: bool,
+    display_compiler_output: bool,
+}
+
 /// Entry point of the program; acts as a REPL.
 pub fn main() {
     // use self::inkwell::support::add_symbol;
-    let mut display_lexer_output = false;
-    let mut display_parser_output = false;
-    let mut display_compiler_output = false;
+    let mut runtime_config = RunConfig {
+        display_lexer_output: false,
+        display_parser_output: false,
+        display_compiler_output: false,
+    };
 
     for arg in std::env::args() {
         match arg.as_str() {
-            "--dl" => display_lexer_output = true,
-            "--dp" => display_parser_output = true,
-            "--dc" => display_compiler_output = true,
+            "--dl" => runtime_config.display_lexer_output = true,
+            "--dp" => runtime_config.display_parser_output = true,
+            "--dc" => runtime_config.display_compiler_output = true,
             _ => (),
         }
     }
 
-    let context = Context::create();
-    let module = context.create_module("repl");
-    let builder = context.create_builder();
+    /*
+        let context = Context::create();
+        let module = context.create_module("repl");
+        let builder = context.create_builder();
 
-    // Create FPM
-    let fpm = PassManager::create(&module);
+        // Create FPM
+        let fpm = PassManager::create(&module);
 
-    fpm.add_instruction_combining_pass();
-    fpm.add_reassociate_pass();
-    fpm.add_gvn_pass();
-    fpm.add_cfg_simplification_pass();
-    fpm.add_basic_alias_analysis_pass();
-    fpm.add_promote_memory_to_register_pass();
-    fpm.add_instruction_combining_pass();
-    fpm.add_reassociate_pass();
+        fpm.add_instruction_combining_pass();
+        fpm.add_reassociate_pass();
+        fpm.add_gvn_pass();
+        fpm.add_cfg_simplification_pass();
+        fpm.add_basic_alias_analysis_pass();
+        fpm.add_promote_memory_to_register_pass();
+        fpm.add_instruction_combining_pass();
+        fpm.add_reassociate_pass();
 
-    fpm.initialize();
+        fpm.initialize();
 
-    let mut previous_exprs = Vec::new();
-    let mut ctr = 0;
-    loop {
-        if ctr > 0 {
-            break;
-        }
-        ctr += 1;
-        println!();
-        //print_flush!("?> ");
-
-        // Read input from stdin
-        let mut input = String::new();
-        io::stdin()
-            .read_to_string(&mut input)
-            .expect("Could not read from standard input.");
-
-        if input.starts_with("exit") || input.starts_with("quit") {
-            break;
-        } else if input.chars().all(char::is_whitespace) {
-            continue;
-        }
-
-        // Build precedence map
-        let mut prec = HashMap::with_capacity(6);
-
-        prec.insert('=', 2);
-        prec.insert('<', 10);
-        prec.insert('+', 20);
-        prec.insert('-', 20);
-        prec.insert('*', 40);
-        prec.insert('/', 40);
-
-        // Parse and (optionally) display input
-        if display_lexer_output {
-            println!(
-                "-> Attempting to parse lexed input: \n{:#?}\n",
-                Lexer::new(input.as_str()).collect::<Vec<LexResult>>()
-            );
-        }
-        match parser::ProgramParser::new().parse(Lexer::new(input.as_str())) {
-            Ok(res) => {
-                std::dbg!(res);
+        let mut previous_exprs = Vec::new();
+        let mut ctr = 0;
+        loop {
+            if ctr > 0 {
+                break;
             }
-            Err(err) => match err {
+            ctr += 1;
+            println!();
+            //print_flush!("?> ");
+
+            // Read input from stdin
+            let mut input = String::new();
+            io::stdin()
+                .read_to_string(&mut input)
+                .expect("Could not read from standard input.");
+
+            if input.starts_with("exit") || input.starts_with("quit") {
+                break;
+            } else if input.chars().all(char::is_whitespace) {
+                continue;
+            }
+
+            // Build precedence map
+            let mut prec = HashMap::with_capacity(6);
+
+            prec.insert('=', 2);
+            prec.insert('<', 10);
+            prec.insert('+', 20);
+            prec.insert('-', 20);
+            prec.insert('*', 40);
+            prec.insert('/', 40);
+
+            // Parse and (optionally) display input
+
+            // make module
+            let module = context.create_module("tmp");
+
+            // recompile every previously parsed function into the new module
+            for prev in &previous_exprs {
+                Compiler::compile(&context, &builder, &fpm, &module, prev)
+                    .expect("Cannot re-add previously compiled function.");
+            }
+
+            let (name, is_anonymous) = match Parser::new(input, &mut prec).parse() {
+                Ok(fun) => {
+                    let is_anon = fun.is_anon;
+
+                    if display_parser_output {
+                        if is_anon {
+                            println!("-> Expression parsed: \n{:?}\n", fun.body);
+                        } else {
+                            println!("-> Function parsed: \n{:?}\n", fun);
+                        }
+                    }
+
+                    match Compiler::compile(&context, &builder, &fpm, &module, &fun) {
+                        Ok(function) => {
+                            if display_compiler_output {
+                                // Not printing a new line since LLVM automatically
+                                // prefixes the generated string with one
+                                //print_flush!("-> Expression compiled to IR:");
+                                function.print_to_stderr();
+                            }
+
+                            if !is_anon {
+                                // only add it now to ensure it is correct
+                                previous_exprs.push(fun);
+                            }
+
+                            (function.get_name().to_str().unwrap().to_string(), is_anon)
+                        }
+                        Err(err) => {
+                            println!("!> Error compiling function: {}", err);
+                            continue;
+                        }
+                    }
+                }
+                Err(err) => {
+                    println!("!> Error parsing expression: {}", err);
+                    continue;
+                }
+            };
+
+            if is_anonymous {
+                let ee = module
+                    .create_jit_execution_engine(OptimizationLevel::None)
+                    .unwrap();
+
+                let maybe_fn =
+                    unsafe { ee.get_function::<unsafe extern "C" fn() -> f64>(name.as_str()) };
+                let compiled_fn = match maybe_fn {
+                    Ok(f) => f,
+                    Err(err) => {
+                        println!("!> Error during execution: {:?}", err);
+                        continue;
+                    }
+                };
+
+                unsafe {
+                    println!("=> {}", compiled_fn.call());
+                }
+            }
+        }
+    */
+    if let Err(exit_code) = run_app(runtime_config) {
+        std::process::exit(exit_code);
+    }
+}
+
+fn run_app(conf: RunConfig) -> Result<(), i32> {
+    let mut input = String::new();
+    io::stdin()
+        .read_to_string(&mut input)
+        .expect("Could not read from standard input.");
+
+    if conf.display_lexer_output {
+        println!(
+            "-> Attempting to parse lexed input: \n{:#?}\n",
+            Lexer::new(input.as_str()).collect::<Vec<LexResult>>()
+        );
+    }
+    let ast = match parser::ProgramParser::new().parse(Lexer::new(input.as_str())) {
+        Ok(res) => res,
+        Err(err) => {
+            match err {
                 lalrpop_util::ParseError::InvalidToken { ref location } => {
                     println!(
                         "{}",
-                        LexError::with_offset(input.to_string(), "Invalid token", *location)
+                        TonyError::with_offset(input.to_string(), "Invalid token", *location)
                     );
                 }
                 lalrpop_util::ParseError::UnrecognizedEOF {
@@ -576,17 +671,17 @@ pub fn main() {
                 } => {
                     println!(
                         "{}",
-                        LexError::with_offset(input.to_string(), "Unrecognized EOF", *location)
+                        TonyError::with_offset(input.to_string(), "Unrecognized EOF", *location)
                     );
                     println!("Expected tokens: {}", expected.join(", "));
                 }
                 lalrpop_util::ParseError::UnrecognizedToken {
-                    token: (ref l, ref t, ref r),
+                    token: (ref l, ref _t, ref r),
                     ref expected,
                 } => {
                     println!(
                         "{}",
-                        LexError::with_span(
+                        TonyError::with_span(
                             input.to_string(),
                             format!("Unrecognized token: \"{}\"", &input[*l..*r]),
                             (*l, *r)
@@ -599,7 +694,7 @@ pub fn main() {
                 } => {
                     println!(
                         "{}",
-                        LexError::with_span(
+                        TonyError::with_span(
                             input.to_string(),
                             format!("Extra token of type {:?}: \"{}\"", t, &input[*l..*r]),
                             (*l, *r)
@@ -609,77 +704,29 @@ pub fn main() {
                 lalrpop_util::ParseError::User { error: err } => {
                     println!("{}", err.to_string());
                 }
-            },
+            }
+            return Err(-1);
         }
-        return;
+    };
+    if !ast
+        .0
+        .iter()
+        .map(|span| span.into_inner().header.0.var.id.into_inner())
+        .any(|id| id.0 == "main")
+    {
+        println!("No main function found.");
+        return Err(-1);
+    }
 
-        // make module
-        let module = context.create_module("tmp");
+    let mut env = symbols::ProgramEnvironment::new_environment(input.to_string());
 
-        // recompile every previously parsed function into the new module
-        for prev in &previous_exprs {
-            Compiler::compile(&context, &builder, &fpm, &module, prev)
-                .expect("Cannot re-add previously compiled function.");
-        }
-
-        let (name, is_anonymous) = match Parser::new(input, &mut prec).parse() {
-            Ok(fun) => {
-                let is_anon = fun.is_anon;
-
-                if display_parser_output {
-                    if is_anon {
-                        println!("-> Expression parsed: \n{:?}\n", fun.body);
-                    } else {
-                        println!("-> Function parsed: \n{:?}\n", fun);
-                    }
-                }
-
-                match Compiler::compile(&context, &builder, &fpm, &module, &fun) {
-                    Ok(function) => {
-                        if display_compiler_output {
-                            // Not printing a new line since LLVM automatically
-                            // prefixes the generated string with one
-                            //print_flush!("-> Expression compiled to IR:");
-                            function.print_to_stderr();
-                        }
-
-                        if !is_anon {
-                            // only add it now to ensure it is correct
-                            previous_exprs.push(fun);
-                        }
-
-                        (function.get_name().to_str().unwrap().to_string(), is_anon)
-                    }
-                    Err(err) => {
-                        println!("!> Error compiling function: {}", err);
-                        continue;
-                    }
-                }
-            }
-            Err(err) => {
-                println!("!> Error parsing expression: {}", err);
-                continue;
-            }
-        };
-
-        if is_anonymous {
-            let ee = module
-                .create_jit_execution_engine(OptimizationLevel::None)
-                .unwrap();
-
-            let maybe_fn =
-                unsafe { ee.get_function::<unsafe extern "C" fn() -> f64>(name.as_str()) };
-            let compiled_fn = match maybe_fn {
-                Ok(f) => f,
-                Err(err) => {
-                    println!("!> Error during execution: {:?}", err);
-                    continue;
-                }
-            };
-
-            unsafe {
-                println!("=> {}", compiled_fn.call());
-            }
+    for funcdef in ast.0.iter() {
+        if let Err(err) = env.insert_global_func(funcdef.into_inner().clone()) {
+            println!("{}", err.to_string());
+            //eprintln!("{:#?}", &env);
+            return Err(-1);
         }
     }
+    println!("cool beans");
+    Ok(())
 }

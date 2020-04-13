@@ -68,7 +68,7 @@ pub enum Token {
     Identifier(String),
     StringLiteral(String),
     In,
-    Number(f64),
+    Number(f64, String),
     Op(char),
     Then,
     Unary,
@@ -81,127 +81,9 @@ impl std::fmt::Display for Token {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Pos {
-    Index(usize, usize),
-    Span(usize, usize),
-}
-
-/// Defines an error encountered by the `Lexer`.
-#[derive(Debug)]
-pub struct LexError {
-    pub error: String,
-    pub source_code: String,
-    pos: Pos,
-}
-
-impl LexError {
-    pub fn new<I: Into<String>>(source_code: String, msg: I) -> LexError {
-        LexError {
-            error: msg.into(),
-            source_code,
-            pos: Pos::Index(0, 0),
-        }
-    }
-
-    pub fn with_index<I: Into<String>>(
-        source_code: String,
-        msg: I,
-        index: (usize, usize),
-    ) -> LexError {
-        LexError {
-            error: msg.into(),
-            source_code,
-            pos: Pos::Index(index.0, index.1),
-        }
-    }
-
-    pub fn with_offset<I: Into<String>>(source_code: String, msg: I, offset: usize) -> LexError {
-        let mut lines = 0;
-        let mut line_offset = 0;
-        let prev_line = source_code[..offset].rfind("\n").unwrap_or(0);
-        for l in source_code[..prev_line].split_n() {
-            lines += 1;
-            line_offset += l.len();
-        }
-        LexError {
-            error: msg.into(),
-            source_code,
-            pos: Pos::Index(lines, offset.saturating_sub(line_offset + 1)),
-        }
-    }
-
-    pub fn with_span<I: Into<String>>(
-        source_code: String,
-        msg: I,
-        span: (usize, usize),
-    ) -> LexError {
-        LexError {
-            error: msg.into(),
-            source_code,
-            pos: Pos::Span(span.0, span.1),
-        }
-    }
-}
-
-impl std::fmt::Display for LexError {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let index = match self.pos {
-            Pos::Index(line, col) => (line, col),
-            Pos::Span(left, right) => {
-                let mut lines = 0;
-                let mut line_offset = 0;
-                let prev_line = self.source_code[..left].rfind("\n").unwrap_or(0);
-                for l in self.source_code[..prev_line].split_n() {
-                    lines += 1;
-                    line_offset += l.len();
-                }
-                (lines, left.saturating_sub(line_offset + 1))
-            }
-        };
-        let line_num_s = (index.0 + 1).to_string();
-        let indent_length = line_num_s.len() + 3;
-        let indent = " ".repeat(indent_length);
-        match self.pos {
-            Pos::Index(_, _) => write!(
-                fmt,
-                "{bold}{red}Error{reset}{bold} Line {}, Column {}: {error}\n{blue}{indent}|\n   {line_num_s}|{reset}{line}\n{bold}{blue}{indent}|{space}{red}{pointer}{reset}",
-                index.0 + 1,
-                index.1 + 1,
-                line = self.source_code.lines().nth(index.0).unwrap().trim_end(),
-                error = &self.error,
-                space = " ".repeat(index.1),
-                pointer = "^",
-                line_num_s = line_num_s,
-                indent = indent,
-                reset = "\x1b[m",
-                blue = "\x1b[34m",
-                red = "\x1b[31m",
-                bold = "\x1b[1m",
-            ),
-            Pos::Span(l, r) => write!(
-                fmt,
-                "{bold}{red}Error{reset}{bold} Line {}, Column {}: {error}\n{blue}{indent}|\n   {line_num_s}|{reset}{line}\n{bold}{blue}{indent}|{space}{red}{pointer}{reset}",
-                index.0 + 1,
-                index.1 + 1,
-                line = self.source_code.lines().nth(index.0).unwrap().trim_end(),
-                error = &self.error,
-                space = " ".repeat(index.1),
-                pointer = "^".repeat(r - l),
-                line_num_s = line_num_s,
-                indent = indent,
-                reset = "\x1b[m",
-                blue = "\x1b[34m",
-                red = "\x1b[31m",
-                bold = "\x1b[1m",
-            ),
-        }
-    }
-}
-
 /// Defines the result of a lexing operation; namely a
-/// `Token` on success, or a `LexError` on failure.
-pub type LexResult = Result<(usize, Token, usize), LexError>;
+/// `Token` on success, or a `TonyError` on failure.
+pub type LexResult = Result<(usize, Token, usize), TonyError>;
 
 /// Defines a lexer which transforms an input `String` into
 /// a `Token` stream.
@@ -283,7 +165,6 @@ impl<'a> Lexer<'a> {
         let result = match c {
             '+' => Ok((start, Token::Plus, pos)),
             '-' => Ok((start, Token::Minus, pos)),
-            '*' => Ok((start, Token::Times, pos)),
             '/' => Ok((start, Token::Backslash, pos)),
             '#' => Ok((start, Token::Octothorpe, pos)),
             '=' => Ok((start, Token::Equals, pos)),
@@ -307,6 +188,7 @@ impl<'a> Lexer<'a> {
             }
             '<' if follows == Some('*') => todo!(),
             '*' if follows == Some('>') => todo!(),
+            '*' => Ok((start, Token::Times, pos)),
             '<' if follows == Some('>') => {
                 chars.next();
                 advance_pos!(follows.unwrap());
@@ -358,7 +240,15 @@ impl<'a> Lexer<'a> {
                 }
                 //println!("parse number {:?}", &src[start..pos]);
 
-                Ok((start, Token::Number(src[start..pos].parse().unwrap()), pos))
+                match src[start..pos].parse() {
+                    Err(err) => Err(TonyError::with_span(
+                        self.input.to_string(),
+                        format!("Error while parsing number literal: {}", err),
+                        (start, pos),
+                    )),
+
+                    Ok(ok) => Ok((start, Token::Number(ok, src[start..pos].to_string()), pos)),
+                }
             }
 
             'a'..='z' | 'A'..='Z' | '_' => {
@@ -397,16 +287,11 @@ impl<'a> Lexer<'a> {
                     "false" => Ok((start, Token::False, pos)),
                     "new" => Ok((start, Token::New, pos)),
                     "skip" => Ok((start, Token::Skip, pos)),
-                    "decl" => Ok((start, Token::Decl, pos)),
-                    "for" => Ok((start, Token::For, pos)),
                     "nil" => Ok((start, Token::Nil, pos)),
                     "nil?" => Ok((start, Token::NilQ, pos)),
                     "tail" => Ok((start, Token::Tail, pos)),
-                    "def" => Ok((start, Token::Def, pos)),
                     "head" => Ok((start, Token::Head, pos)),
                     "true" => Ok((start, Token::True, pos)),
-                    "else" => Ok((start, Token::Else, pos)),
-                    "if" => Ok((start, Token::If, pos)),
                     "mod" => Ok((start, Token::Mod, pos)),
                     "not" => Ok((start, Token::Not, pos)),
                     "elif" => Ok((start, Token::Elif, pos)),
@@ -433,7 +318,7 @@ impl<'a> Lexer<'a> {
                         prev = ch;
                         break;
                     } else if ch == '\n' {
-                        return Err(LexError::with_index(
+                        return Err(TonyError::with_index(
                             self.input.to_string(),
                             format!("Encountered new line while parsing string literal",),
                             (self.line, self.col),
@@ -464,7 +349,7 @@ impl<'a> Lexer<'a> {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<(usize, Token, usize), LexError>;
+    type Item = Result<(usize, Token, usize), TonyError>;
 
     /// Lexes the next `Token` and returns it.
     /// On EOF or failure, `None` will be returned.
@@ -475,37 +360,5 @@ impl<'a> Iterator for Lexer<'a> {
             ok @ Ok(_) => Some(ok),
             err @ Err(_) => Some(err),
         }
-    }
-}
-
-pub struct LineIterator<'a> {
-    slice: &'a str,
-}
-
-impl<'a> Iterator for LineIterator<'a> {
-    type Item = &'a str;
-
-    fn next(&mut self) -> Option<&'a str> {
-        if self.slice.is_empty() {
-            None
-        } else if let Some(pos) = self.slice.find("\n") {
-            let ret = &self.slice[..pos + 1];
-            self.slice = &self.slice[pos + 1..];
-            Some(ret)
-        } else {
-            let ret = self.slice;
-            self.slice = &self.slice[ret.len()..];
-            Some(ret)
-        }
-    }
-}
-
-pub trait LineSplit {
-    fn split_n(&self) -> LineIterator;
-}
-
-impl LineSplit for str {
-    fn split_n(&self) -> LineIterator {
-        LineIterator { slice: self }
     }
 }
