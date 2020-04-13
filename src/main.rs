@@ -528,7 +528,7 @@ pub fn main() {
         }
         ctr += 1;
         println!();
-        print_flush!("?> ");
+        //print_flush!("?> ");
 
         // Read input from stdin
         let mut input = String::new();
@@ -639,7 +639,7 @@ pub fn main() {
                         if display_compiler_output {
                             // Not printing a new line since LLVM automatically
                             // prefixes the generated string with one
-                            print_flush!("-> Expression compiled to IR:");
+                            //print_flush!("-> Expression compiled to IR:");
                             function.print_to_stderr();
                         }
 
