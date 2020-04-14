@@ -651,7 +651,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
 
     if conf.display_lexer_output {
         println!(
-            "-> Attempting to parse lexed input: \n{:#?}\n",
+            "-> Attempting to parse lexed input: \n{:?}\n",
             Lexer::new(input.as_str()).collect::<Vec<LexResult>>()
         );
     }
@@ -702,7 +702,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
                     );
                 }
                 lalrpop_util::ParseError::User { error: err } => {
-                    println!("{}", err.to_string());
+                    println!("{}", err.set_parser_kind().to_string());
                 }
             }
             return Err(-1);
@@ -713,6 +713,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
         .iter()
         .map(|span| span.into_inner().header.0.var.id.into_inner())
         .any(|id| id.0 == "main")
+        && ast.0.len() != 1
     {
         println!("No main function found.");
         return Err(-1);

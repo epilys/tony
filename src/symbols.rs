@@ -343,6 +343,7 @@ impl ProgramEnvironment {
                         format!("func ident {:?} not found in scope", ident.into_inner()),
                         (ident.left, ident.right),
                     )
+                    .set_symbol_table_kind()
                 });
             if ret.is_ok() || scope_uuid.is_none() {
                 return ret;
@@ -372,6 +373,7 @@ impl ProgramEnvironment {
                         format!("var ident {:?} not found in scope", ident.into_inner()),
                         (ident.left, ident.right),
                     )
+                    .set_symbol_table_kind()
                 });
             if ret.is_ok() || scope_uuid.is_none() {
                 return ret;

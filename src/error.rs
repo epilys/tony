@@ -4,17 +4,36 @@ enum Pos {
     Span(usize, usize),
 }
 
+#[derive(Debug)]
+enum TonyErrorKind {
+    Lexer,
+    Parser,
+    SymbolTableCheck,
+}
+
 /// Defines an error encountered by the `Tonyer`.
 #[derive(Debug)]
 pub struct TonyError {
+    kind: TonyErrorKind,
     pub error: String,
     pub source_code: String,
     pos: Pos,
 }
+macro_rules! set_fn {
+        ($set_name:ident, $kind:expr) => {
+            pub fn $set_name(self) -> Self {
+                TonyError {
+                    kind: $kind,
+                    .. self
+                }
+            }
+        }
+    }
 
 impl TonyError {
     pub fn new<I: Into<String>>(source_code: String, msg: I) -> TonyError {
         TonyError {
+            kind: TonyErrorKind::Lexer,
             error: msg.into(),
             source_code,
             pos: Pos::Index(0, 0),
@@ -27,6 +46,7 @@ impl TonyError {
         index: (usize, usize),
     ) -> TonyError {
         TonyError {
+            kind: TonyErrorKind::Lexer,
             error: msg.into(),
             source_code,
             pos: Pos::Index(index.0, index.1),
@@ -42,6 +62,7 @@ impl TonyError {
             line_offset += l.len();
         }
         TonyError {
+            kind: TonyErrorKind::Lexer,
             error: msg.into(),
             source_code,
             pos: Pos::Index(lines, offset.saturating_sub(line_offset + 1)),
@@ -54,11 +75,15 @@ impl TonyError {
         span: (usize, usize),
     ) -> TonyError {
         TonyError {
+            kind: TonyErrorKind::Lexer,
             error: msg.into(),
             source_code,
             pos: Pos::Span(span.0, span.1),
         }
     }
+
+    set_fn!(set_parser_kind, TonyErrorKind::Parser);
+    set_fn!(set_symbol_table_kind, TonyErrorKind::SymbolTableCheck);
 }
 
 impl std::fmt::Display for TonyError {
@@ -82,7 +107,8 @@ impl std::fmt::Display for TonyError {
         match self.pos {
             Pos::Index(_, _) => write!(
                 fmt,
-                "{bold}{red}Error{reset}{bold} Line {}, Column {}: {error}\n{blue}{indent}|\n   {line_num_s}|{reset}{line}\n{bold}{blue}{indent}|{space}{red}{pointer}{reset}",
+                "{bold}{red}{:?} Error{reset}{bold} Line {}, Column {}: {error}\n{blue}{indent}|\n   {line_num_s}|{reset}{line}\n{bold}{blue}{indent}|{space}{red}{pointer}{reset}",
+                self.kind,
                 index.0 + 1,
                 index.1 + 1,
                 line = self.source_code.lines().nth(index.0).unwrap().trim_end(),
@@ -98,7 +124,8 @@ impl std::fmt::Display for TonyError {
             ),
             Pos::Span(l, r) => write!(
                 fmt,
-                "{bold}{red}Error{reset}{bold} Line {}, Column {}: {error}\n{blue}{indent}|\n   {line_num_s}|{reset}{line}\n{bold}{blue}{indent}|{space}{red}{pointer}{reset}",
+                "{bold}{red}{:?} Error{reset}{bold} Line {}, Column {}: {error}\n{blue}{indent}|\n   {line_num_s}|{reset}{line}\n{bold}{blue}{indent}|{space}{red}{pointer}{reset}",
+                self.kind,
                 index.0 + 1,
                 index.1 + 1,
                 line = self.source_code.lines().nth(index.0).unwrap().trim_end(),
