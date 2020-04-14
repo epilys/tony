@@ -45,6 +45,7 @@ mod parser;
 use parser::*;
 
 mod symbols;
+mod builtins;
 
 const ANONYMOUS_FUNCTION_NAME: &str = "anonymous";
 

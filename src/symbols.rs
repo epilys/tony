@@ -109,6 +109,11 @@ impl ProgramEnvironment {
         ret.insert_builtin_func("strcpy");
         ret.insert_builtin_func("strcat");
         ret.insert_builtin_func("readInteger");
+        ret.insert_builtin_func("nil");
+        ret.insert_builtin_func("nil?");
+        ret.insert_builtin_func("head");
+        ret.insert_builtin_func("tail");
+        ret.insert_builtin_func("cons");
 
         ret
     }
@@ -258,21 +263,7 @@ impl ProgramEnvironment {
         stmt: &ast::Stmt,
     ) -> Result<(), TonyError> {
         match stmt {
-            ast::Stmt::Simple(ast::Simple::Skip) => Ok(()),
-            ast::Stmt::Simple(ast::Simple::Call(ast::Call(ident_span, exprs))) => {
-                self.contains_func_symbol(scope_uuid, ident_span)?;
-                exprs
-                    .iter()
-                    .map(|expr_span| self.contains_expr_symbol(scope_uuid, expr_span.into_inner()))
-                    .collect::<Result<Vec<()>, TonyError>>()
-                    .map(|_| ())?;
-                Ok(())
-            }
-            ast::Stmt::Simple(ast::Simple::Assignment(atom, expr_span)) => {
-                self.contains_atom_symbol(scope_uuid, atom)?;
-                self.contains_expr_symbol(scope_uuid, expr_span.into_inner())?;
-                Ok(())
-            }
+            ast::Stmt::Simple(simple) => self.contains_simple_symbol(scope_uuid, simple),
             ast::Stmt::Exit => Ok(()),
             ast::Stmt::Return(expr_span) => {
                 self.contains_expr_symbol(scope_uuid, expr_span.into_inner())
@@ -295,7 +286,51 @@ impl ProgramEnvironment {
                     .collect::<Result<Vec<()>, TonyError>>()?;
                 Ok(())
             }
-            ast::Stmt::Control(ast::StmtType::For) => todo!(),
+            ast::Stmt::Control(ast::StmtType::For {
+                init,
+                condition: condition_expr_span,
+                eval,
+                body: body_stmt_spans,
+            }) => {
+                self.contains_expr_symbol(scope_uuid, condition_expr_span.into_inner())?;
+                init.iter()
+                    .map(|simple| self.contains_simple_symbol(scope_uuid, simple))
+                    .collect::<Result<Vec<()>, TonyError>>()?;
+                eval.iter()
+                    .map(|simple| self.contains_simple_symbol(scope_uuid, simple))
+                    .collect::<Result<Vec<()>, TonyError>>()?;
+
+                body_stmt_spans
+                    .iter()
+                    .map(ast::Span::into_inner)
+                    .map(|stmt| self.contains_stmt_symbol(scope_uuid, stmt))
+                    .collect::<Result<Vec<()>, TonyError>>()?;
+                Ok(())
+            }
+        }
+    }
+
+    fn contains_simple_symbol(
+        &self,
+        scope_uuid: Option<&ScopeUuid>,
+        simple: &ast::Simple,
+    ) -> Result<(), TonyError> {
+        match simple {
+            ast::Simple::Skip => Ok(()),
+            ast::Simple::Call(ast::Call(ident_span, exprs)) => {
+                self.contains_func_symbol(scope_uuid, ident_span)?;
+                exprs
+                    .iter()
+                    .map(|expr_span| self.contains_expr_symbol(scope_uuid, expr_span.into_inner()))
+                    .collect::<Result<Vec<()>, TonyError>>()
+                    .map(|_| ())?;
+                Ok(())
+            }
+            ast::Simple::Assignment(atom, expr_span) => {
+                self.contains_atom_symbol(scope_uuid, atom)?;
+                self.contains_expr_symbol(scope_uuid, expr_span.into_inner())?;
+                Ok(())
+            }
         }
     }
 

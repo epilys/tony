@@ -161,6 +161,9 @@ Simple: ast::Simple = {
 Atom: ast::Atom = {
     <id:Identifier> => ast::Atom::Id(id),
     <s:StringLiteral> => ast::Atom::StringLiteral(ast::StringLiteral(s)),
+    <l:@L> "head" <r:@R> "(" <e:CommaList<Expr>> ")" => ast::Atom::Call(ast::Call(span![ast::Identifier("head".to_string());l,r], e)),
+    <l:@L> "tail" <r:@R> "(" <e:CommaList<Expr>> ")" => ast::Atom::Call(ast::Call(span![ast::Identifier("tail".to_string());l,r], e)),
+    <l:@L> "nil?" <r:@R> "(" <e:CommaList<Expr>> ")" => ast::Atom::Call(ast::Call(span![ast::Identifier("nil?".to_string());l,r], e)),
     <id:Identifier> "(" <e:CommaList<Expr>> ")" => ast::Atom::Call(ast::Call(id, e)),
 }
 
@@ -183,9 +186,9 @@ FExpr: Span<ast::Expr> = {
   <l:@L> <e1:FExpr> "<=" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::LessOrEqual, Box::new(e2)); l,r],
   <l:@L> <e1:FExpr> ">=" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::GreaterOrEqual, Box::new(e2)); l,r],
   <l:@L> "not" <e:TExpr> <r:@R> => span![ast::Expr::Not(Box::new(e)); l,r],
-  <l:@L> <e1: TExpr> "and" <e2: TExpr> <r:@R> => span![ast::Expr::And(Box::new(e1), Box::new(e2)); l,r],
-  <l:@L> <e1: TExpr> "or" <e2: TExpr> <r:@R> => span![ast::Expr::Or(Box::new(e1), Box::new(e2)); l,r],
-  "(" <e: Expr> ")" => e,
+  <l:@L> <e1: FExpr> "and" <e2: TExpr> <r:@R> => span![ast::Expr::And(Box::new(e1), Box::new(e2)); l,r],
+  <l:@L> <e1: FExpr> "or" <e2: TExpr> <r:@R> => span![ast::Expr::Or(Box::new(e1), Box::new(e2)); l,r],
+  <l:@L> <e1: FExpr> <il:@L> "#" <ir:@R> <e2: TExpr> <r:@R> => span![ast::Expr::Atom(ast::Atom::Call(ast::Call(span![ast::Identifier("cons".to_string()); il,ir], vec![e1, e2]))); l,r],
   <e: TExpr> => e,
 }
 
@@ -197,6 +200,7 @@ TExpr: Span<ast::Expr> = {
   <l:@L> "nil" <r:@R> => span![ast::Expr::Nil; l,r],
   <l:@L> <i:IntConst> <r:@R> => span![ast::Expr::IntConst(i); l,r],
   <l:@L> <c:CharConst> <r:@R> => span![ast::Expr::CharConst(c); l,r],
+  "(" <e: Expr> ")" => e,
 }
 
 // Hook external lexer:
@@ -222,6 +226,9 @@ extern {
       "true" => lexer::Token::True,
       "false" => lexer::Token::False,
       "new" => lexer::Token::New,
+      "head" => lexer::Token::Head,
+      "tail" => lexer::Token::Tail,
+      "nil?" => lexer::Token::NilQ,
       "nil" => lexer::Token::Nil,
       "list" => lexer::Token::List,
       "if" => lexer::Token::If,
@@ -234,6 +241,7 @@ extern {
       "-" => lexer::Token::Minus,
       "*" => lexer::Token::Times,
       "=" => lexer::Token::Equals,
+      "#" => lexer::Token::Octothorpe,
       "<>" => lexer::Token::NotEquals,
       "<" => lexer::Token::Lthan,
       ">" => lexer::Token::Gthan,
