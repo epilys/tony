@@ -162,6 +162,15 @@ impl<'a> Lexer<'a> {
 
         //println!("Next char is {:?} {:?}", next, src[start..].chars().next());
         // Actually get the next token.
+        macro_rules! lit_token {
+            ($lit:literal, $t:expr) => {{
+                for _ in 1..$lit.len() {
+                    let ch = chars.next().unwrap();
+                    advance_pos!(ch);
+                }
+                Ok((start, $t, pos))
+            }};
+        }
         let result = match c {
             '+' => Ok((start, Token::Plus, pos)),
             '-' => Ok((start, Token::Minus, pos)),
@@ -250,7 +259,36 @@ impl<'a> Lexer<'a> {
                     Ok(ok) => Ok((start, Token::Number(ok, src[start..pos].to_string()), pos)),
                 }
             }
-
+            _ if src[start..].starts_with("and") => lit_token!("and", Token::And),
+            _ if src[start..].starts_with("bool") => lit_token!("bool", Token::Bool),
+            _ if src[start..].starts_with("char") => lit_token!("char", Token::Char),
+            _ if src[start..].starts_with("decl") => lit_token!("decl", Token::Decl),
+            _ if src[start..].starts_with("def") => lit_token!("def", Token::Def),
+            _ if src[start..].starts_with("elif") => lit_token!("elif", Token::Elif),
+            _ if src[start..].starts_with("elsif") => lit_token!("elsif", Token::Elif),
+            _ if src[start..].starts_with("else") => lit_token!("else", Token::Else),
+            _ if src[start..].starts_with("end") => lit_token!("end", Token::End),
+            _ if src[start..].starts_with("exit") => lit_token!("exit", Token::Exit),
+            _ if src[start..].starts_with("extern") => lit_token!("extern", Token::Extern),
+            _ if src[start..].starts_with("false") => lit_token!("false", Token::False),
+            _ if src[start..].starts_with("for") => lit_token!("for", Token::For),
+            _ if src[start..].starts_with("head") => lit_token!("head", Token::Head),
+            _ if src[start..].starts_with("if") => lit_token!("if", Token::If),
+            _ if src[start..].starts_with("int") => lit_token!("int", Token::Int),
+            _ if src[start..].starts_with("list") => lit_token!("list", Token::List),
+            _ if src[start..].starts_with("mod") => lit_token!("mod", Token::Mod),
+            _ if src[start..].starts_with("new") => lit_token!("new", Token::New),
+            _ if src[start..].starts_with("nil?") => lit_token!("nil?", Token::NilQ),
+            _ if src[start..].starts_with("nil") => lit_token!("nil", Token::Nil),
+            _ if src[start..].starts_with("not") => lit_token!("not", Token::Not),
+            _ if src[start..].starts_with("or") => lit_token!("or", Token::Or),
+            _ if src[start..].starts_with("ref") => lit_token!("ref", Token::Ref),
+            _ if src[start..].starts_with("return") => lit_token!("return", Token::Return),
+            _ if src[start..].starts_with("skip") => lit_token!("skip", Token::Skip),
+            _ if src[start..].starts_with("tail") => lit_token!("tail", Token::Tail),
+            _ if src[start..].starts_with("then") => lit_token!("then", Token::Then),
+            _ if src[start..].starts_with("true") => lit_token!("true", Token::True),
+            _ if src[start..].starts_with("var") => lit_token!("var", Token::Var),
             'a'..='z' | 'A'..='Z' | '_' => {
                 // Parse identifier
                 //println!("Parse identifier");
@@ -261,7 +299,7 @@ impl<'a> Lexer<'a> {
                     };
 
                     // A word-like identifier only contains underscores and alphanumeric characters.
-                    if ch != '_' && !ch.is_alphanumeric() {
+                    if ch != '_' && !ch.is_alphanumeric() && ch != '?' {
                         break;
                     }
 
@@ -270,39 +308,7 @@ impl<'a> Lexer<'a> {
                 }
                 //println!("token = {:?}", &src[start..pos]);
 
-                match &src[start..pos] {
-                    "def" => Ok((start, Token::Def, pos)),
-                    "extern" => Ok((start, Token::Extern, pos)),
-                    "if" => Ok((start, Token::If, pos)),
-                    "then" => Ok((start, Token::Then, pos)),
-                    "else" => Ok((start, Token::Else, pos)),
-                    "for" => Ok((start, Token::For, pos)),
-                    "var" => Ok((start, Token::Var, pos)),
-                    "decl" => Ok((start, Token::Decl, pos)),
-                    "and" => Ok((start, Token::And, pos)),
-                    "end" => Ok((start, Token::End, pos)),
-                    "list" => Ok((start, Token::List, pos)),
-                    "ref" => Ok((start, Token::Ref, pos)),
-                    "char" => Ok((start, Token::Char, pos)),
-                    "false" => Ok((start, Token::False, pos)),
-                    "new" => Ok((start, Token::New, pos)),
-                    "skip" => Ok((start, Token::Skip, pos)),
-                    "nil" => Ok((start, Token::Nil, pos)),
-                    "nil?" => Ok((start, Token::NilQ, pos)),
-                    "tail" => Ok((start, Token::Tail, pos)),
-                    "head" => Ok((start, Token::Head, pos)),
-                    "true" => Ok((start, Token::True, pos)),
-                    "mod" => Ok((start, Token::Mod, pos)),
-                    "not" => Ok((start, Token::Not, pos)),
-                    "elif" => Ok((start, Token::Elif, pos)),
-                    "int" => Ok((start, Token::Int, pos)),
-                    "bool" => Ok((start, Token::Bool, pos)),
-                    "or" => Ok((start, Token::Or, pos)),
-                    "exit" => Ok((start, Token::Exit, pos)),
-                    "return" => Ok((start, Token::Return, pos)),
-
-                    ident => Ok((start, Token::Identifier(ident.to_string()), pos)),
-                }
+                Ok((start, Token::Identifier(src[start..pos].to_string()), pos))
             }
             quot @ '”' | quot @ '"' => {
                 // Parse string constant

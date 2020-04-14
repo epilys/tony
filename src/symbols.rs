@@ -211,7 +211,9 @@ impl ProgramEnvironment {
                         self.insert_func(Some(&new_scope_uuid), func.clone())?; //new_scope.insert_func();
                     }
                     ast::Decl::Var(v) => {
-                        self.insert_var(Some(&new_scope_uuid), v.clone(), false)?;
+                        for var in v {
+                            self.insert_var(Some(&new_scope_uuid), var.clone(), false)?;
+                        }
                     }
                 }
             }

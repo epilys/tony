@@ -79,8 +79,13 @@ SemicolonNoTrailingList<T>: Vec<T> = {
     DelimNoTrailing<T, ";"> => <>
 }
 
+VarDefList: Vec<ast::VarDef> = {
+  <t:TonyType> <ids:CommaNoTrailingList<Identifier>> => {
+    ids.into_iter().map(|id| ast::VarDef { tony_type: t.clone(), id, }).collect::<Vec<ast::VarDef>>()
+  }
+}
 Decl: Span<ast::Decl>= {
-  <l:@L> <v:VarDef> <r:@R> => {
+  <l:@L> <v:VarDefList> <r:@R> => {
     span![ast::Decl::Var(v); l,r]
   },
   <l:@L> <f:FuncDef> <r:@R> =>{
@@ -126,6 +131,14 @@ Stmt: Span<ast::Stmt> = {
 }
 
 IfStatement: ast::Stmt = {
+    "for" <init_simple_list:CommaNoTrailingList<Simple>> ";" <condition:Expr> ";" <eval_simple_list:CommaNoTrailingList<Simple>> ":" <body:Stmt+> "end" => {
+        ast::Stmt::Control(ast::StmtType::For {
+          init: init_simple_list,
+          condition: Box::new(condition),
+          eval: eval_simple_list,
+          body,
+        })
+    },
     "if" <condition:Expr> ":" <body:Stmt+> <elifs:(<@L> "elif" <Expr> ":" <Stmt+> <@R>)*> <_else:("else" ":" <Stmt+>)?> "end" => {
         let mut _else = _else;
 
@@ -212,6 +225,7 @@ extern {
       "nil" => lexer::Token::Nil,
       "list" => lexer::Token::List,
       "if" => lexer::Token::If,
+      "for" => lexer::Token::For,
       "elif" => lexer::Token::Elif,
       "else" => lexer::Token::Else,
       "return" => lexer::Token::Return,

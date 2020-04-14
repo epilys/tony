@@ -120,7 +120,12 @@ pub enum StmtType {
         body: Vec<Span<Stmt>>,
         _else: Vec<Span<Stmt>>,
     },
-    For,
+    For {
+        init: Vec<Simple>,
+        condition: Box<Span<Expr>>,
+        eval: Vec<Simple>,
+        body: Vec<Span<Stmt>>,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -207,7 +212,7 @@ pub enum Expr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decl {
     Func(Span<FuncDef>),
-    Var(VarDef),
+    Var(Vec<VarDef>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
