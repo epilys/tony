@@ -1,0 +1,9 @@
+def int tony_add(int a, b):
+  int r
+  r := a + b
+  return r
+end
+
+def main():
+  tony_add(1,4)
+end

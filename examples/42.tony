@@ -1,0 +1,7 @@
+def int main():
+  return 42
+end
+
+def char cmain():
+  return 't'
+end

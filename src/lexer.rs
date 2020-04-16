@@ -310,6 +310,39 @@ impl<'a> Lexer<'a> {
 
                 Ok((start, Token::Identifier(src[start..pos].to_string()), pos))
             }
+            quot @ '\'' | quot @ '’' => {
+                // Parse Char constant
+                let ch = match chars.next() {
+                    Some(ch) => ch,
+                    None => {
+                        return Err(TonyError::with_index(
+                            self.input.to_string(),
+                            format!("Encountered EOF while parsing char literal",),
+                            (self.line, self.col),
+                        ));
+                    }
+                };
+                advance_pos!(ch);
+                let next = match chars.next() {
+                    Some(ch) if ch != quot => {
+                        return Err(TonyError::with_index(
+                            self.input.to_string(),
+                            format!("Char literal not properly closed with {}", quot),
+                            (self.line, self.col),
+                        ));
+                    }
+                    Some(ch) => ch,
+                    None => {
+                        return Err(TonyError::with_index(
+                            self.input.to_string(),
+                            format!("Encountered EOF while parsing char literal"),
+                            (self.line, self.col),
+                        ));
+                    }
+                };
+                advance_pos!(next);
+                Ok((start, Token::CChar(ch), pos))
+            }
             quot @ '”' | quot @ '"' => {
                 // Parse string constant
                 //println!("Parse string constant");

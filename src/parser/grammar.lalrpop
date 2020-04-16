@@ -20,7 +20,7 @@ FuncDef: ast::Span<ast::FuncDef> = {
     span![ast::FuncDef {
         header,
         declarations: Vec::from_iter(decls.into_iter()),
-        statements: Vec::from_iter(stmts.into_iter()),
+        body: Vec::from_iter(stmts.into_iter()),
     }; l, r]
   },
 };

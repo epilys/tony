@@ -4,6 +4,7 @@ lalrpop_mod!(grammar, "/parser/grammar.rs"); // synthesized by LALRPOP
 
 pub use grammar::*;
 
+/*
 /// Defines a primitive expression.
 #[derive(Debug)]
 pub enum Expr {
@@ -596,3 +597,4 @@ impl<'a> Parser<'a> {
         }
     }
 }
+*/

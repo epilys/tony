@@ -8,6 +8,16 @@ pub struct CharConst(pub char);
 #[derive(Debug, Clone)]
 pub struct IntConst(pub f64, pub String);
 
+use std::ops::Deref;
+
+impl<T: std::fmt::Debug + Clone + PartialEq + Eq> Deref for Span<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 impl std::cmp::PartialEq for IntConst {
     fn eq(&self, other: &Self) -> bool {
         self.1 == other.1
@@ -49,7 +59,28 @@ pub struct Program(pub Vec<Span<FuncDef>>);
 pub struct FuncDef {
     pub header: (Formal, Vec<Formal>),
     pub declarations: Vec<Span<Decl>>,
-    pub statements: Vec<Span<Stmt>>,
+    pub body: Vec<Span<Stmt>>,
+}
+
+impl fmt::Display for FuncDef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:?}({})",
+            self.header.0,
+            self.header
+                .1
+                .iter()
+                .map(|f| format!("{:?}", f))
+                .fold(String::new(), |mut acc, x| {
+                    if !acc.is_empty() {
+                        acc.push_str(", ");
+                    }
+                    acc.push_str(&x);
+                    acc
+                })
+        )
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -68,6 +99,12 @@ impl fmt::Debug for Formal {
 pub struct VarDef {
     pub tony_type: Span<TonyType>,
     pub id: Span<Identifier>,
+}
+
+impl VarDef {
+    pub fn as_str(&self) -> &str {
+        self.id.0.as_str()
+    }
 }
 
 impl fmt::Debug for VarDef {

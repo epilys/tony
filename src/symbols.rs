@@ -248,7 +248,7 @@ impl ProgramEnvironment {
             this_scope!(symbol_tables[scope_key]).symbols.push(symbol);
         }
         {
-            for stmt in value.statements.iter().map(|span| span.into_inner()) {
+            for stmt in value.body.iter().map(|span| span.into_inner()) {
                 //println!("examining stmt {:#?} ", stmt);
                 // Check that all statements refer to in-scope symbols.
                 self.contains_stmt_symbol(Some(&new_scope_uuid), stmt)?;
