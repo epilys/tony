@@ -9,6 +9,7 @@ enum TonyErrorKind {
     Lexer,
     Parser,
     SymbolTableCheck,
+    TypeCheck,
 }
 
 /// Defines an error encountered by the `Tonyer`.
@@ -84,6 +85,7 @@ impl TonyError {
 
     set_fn!(set_parser_kind, TonyErrorKind::Parser);
     set_fn!(set_symbol_table_kind, TonyErrorKind::SymbolTableCheck);
+    set_fn!(set_typecheck_kind, TonyErrorKind::TypeCheck);
 }
 
 impl std::fmt::Display for TonyError {

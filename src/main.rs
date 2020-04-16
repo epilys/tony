@@ -1,8 +1,4 @@
-//! This is an example of the [Kaleidoscope tutorial](https://llvm.org/docs/tutorial/)
-//! made in Rust, using Inkwell.
-//! Currently, all features up to the [7th chapter](https://llvm.org/docs/tutorial/LangImpl07.html)
-//! are available.
-//! This example is supposed to be ran as a executable, which launches a REPL.
+//! This example is supposed to be ran as a executable.
 //! The source code is in the following order:
 //! - Lexer,
 //! - Parser,
@@ -10,7 +6,7 @@
 //! - Program.
 //!
 //! Both the `Parser` and the `Compiler` may fail, in which case they would return
-//! an error represented by `Result<T, &'static str>`, for easier error reporting.
+//! an error represented by `Result<T, TonyError>`, for easier error reporting.
 
 extern crate inkwell;
 use std::collections::HashMap;

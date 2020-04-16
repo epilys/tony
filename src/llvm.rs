@@ -8,6 +8,7 @@ use inkwell::module::Module;
 pub use inkwell::passes::PassManager;
 use inkwell::types::{BasicTypeEnum, FunctionType};
 use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, FunctionValue, PointerValue};
+use inkwell::values::{IntMathValue, IntValue};
 use inkwell::FloatPredicate; //, OptimizationLevel};
 
 /// Defines the `Expr` compiler.
@@ -49,9 +50,39 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         builder.build_alloca(Compiler::tonytype_into_basictypenum(&self.context, t), name)
     }
 
+    fn compile_bool_expr(&'_ self, expr: &Span<Expr>) -> Result<IntValue<'_>, TonyError> {
+        match expr.into_inner() {
+            Expr::True => Ok(self.context.bool_type().const_int(1, false)),
+            Expr::False => Ok(self.context.bool_type().const_zero()),
+            Expr::Not(expr_span) => {
+                let v = self.compile_bool_expr(expr_span)?;
+                Ok(self.builder.build_not(v, "tmpnot"))
+            }
+            Expr::And(left, right) => {
+                let lhs = self.compile_bool_expr(left)?;
+                let rhs = self.compile_bool_expr(right)?;
+                Ok(self.builder.build_and(lhs, rhs, "tmpand"))
+            }
+            Expr::Or(left, right) => {
+                let lhs = self.compile_bool_expr(left)?;
+                let rhs = self.compile_bool_expr(right)?;
+                Ok(self.builder.build_or(lhs, rhs, "tmpor"))
+            }
+            _ => Err(TonyError::with_span(
+                String::new(),
+                format!("expected bool, found {:?}", expr.into_inner()),
+                (expr.left, expr.right),
+            )
+            .set_typecheck_kind()),
+        }
+    }
+
     /// Compiles the specified `Expr`
-    fn compile_expr(&'_ self, expr: &Expr) -> Result<Box<dyn BasicValue<'_> + '_>, &'static str> {
-        match expr {
+    fn compile_expr(
+        &'_ self,
+        expr: &Span<Expr>,
+    ) -> Result<Box<dyn BasicValue<'_> + '_>, TonyError> {
+        match expr.into_inner() {
             Expr::Atom(_) => {}
             Expr::IntConst(IntConst(v, _)) => {
                 return Ok(Box::new(self.context.f64_type().const_float(*v)));
@@ -61,15 +92,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     self.context.i32_type().const_int(*v as u32 as u64, false),
                 ));
             }
-            Expr::True => {
-                return Ok(Box::new(self.context.bool_type().const_int(1, false)));
+            Expr::True | Expr::False | Expr::Not(_) | Expr::And(_, _) | Expr::Or(_, _) => {
+                return Ok(Box::new(self.compile_bool_expr(expr)?));
             }
-            Expr::False => {
-                return Ok(Box::new(self.context.bool_type().const_zero()));
-            }
-            Expr::Not(expr_span) => {}
-            Expr::And(expr_1_span, expr_2_span) => {}
-            Expr::Or(expr_1_span, expr_2_span) => {}
             Expr::Minus(expr_span) => {}
             Expr::Op(expr_1_span, op, expr_2_span) => {}
             Expr::New(type_span, expr_span) => {}
@@ -79,7 +104,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Compiles the specified `Stmt` into an LLVM `FloatValue`.
-    fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), &'static str> {
+    fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), TonyError> {
         println!("compiling stmt {:?}", stmt);
         match stmt {
             Stmt::Simple(Simple::Skip) => {}
@@ -386,7 +411,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn compile_prototype(
         &self,
         (fn_vardef, arg_decls): &(Formal, Vec<Formal>),
-    ) -> Result<FunctionValue<'ctx>, &'static str> {
+    ) -> Result<FunctionValue<'ctx>, TonyError> {
         let args_types = arg_decls
             .iter()
             .map(|f| {
@@ -430,7 +455,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Compiles the specified `Function` into an LLVM `FunctionValue`.
-    fn compile_fn(&mut self) -> Result<FunctionValue<'ctx>, &'static str> {
+    fn compile_fn(&mut self) -> Result<FunctionValue<'ctx>, TonyError> {
         let proto = &self.function.header;
         let function = self.compile_prototype(proto)?;
 
@@ -482,7 +507,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 function.delete();
             }
 
-            Err("Invalid generated function.")
+            Err(TonyError::new(String::new(), "Invalid generated function."))
         }
     }
 
@@ -493,7 +518,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         pass_manager: &'a PassManager<FunctionValue<'ctx>>,
         module: &'a Module<'ctx>,
         function: &FuncDef,
-    ) -> Result<FunctionValue<'ctx>, &'static str> {
+    ) -> Result<FunctionValue<'ctx>, TonyError> {
         let mut compiler = Compiler {
             context,
             builder,

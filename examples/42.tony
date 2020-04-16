@@ -5,3 +5,7 @@ end
 def char cmain():
   return 't'
 end
+
+def bool bmain():
+  return (false or true)
+end
