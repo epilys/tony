@@ -176,5 +176,7 @@ pub fn builtins_to_funcdef() -> Vec<FuncDef> {
     let Program(ret) = crate::parser::ProgramParser::new()
         .parse(crate::lexer::Lexer::new(EXTERNAL_FNS))
         .unwrap();
-    ret.into_iter().map(|Span { inner, .. }| inner).collect()
+    ret.into_iter()
+        .map(|Span { mut inner, .. }| inner)
+        .collect()
 }

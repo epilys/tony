@@ -68,7 +68,6 @@ impl std::hash::Hash for Symbol {
 
 #[derive(Debug)]
 pub struct ProgramEnvironment {
-    source_code: String,
     symbol_tables: HashMap<ScopeUuid, SymbolTable>,
     global_scope_uuid: ScopeUuid,
 }
@@ -79,7 +78,7 @@ macro_rules! this_scope {
     };
 }
 impl ProgramEnvironment {
-    pub fn new_environment(source_code: String) -> Self {
+    pub fn new_environment() -> Self {
         let global_scope = SymbolTable::new_scope(None);
         let global_scope_uuid = global_scope.uuid.clone();
         let symbol_tables: HashMap<ScopeUuid, SymbolTable> =
@@ -89,7 +88,6 @@ impl ProgramEnvironment {
         assert!(symbol_tables.contains_key(&global_scope_uuid));
 
         let mut ret = ProgramEnvironment {
-            source_code,
             symbol_tables,
             global_scope_uuid,
         };
@@ -374,7 +372,6 @@ impl ProgramEnvironment {
                 })
                 .ok_or_else(|| {
                     TonyError::with_span(
-                        self.source_code.clone(),
                         format!("func ident {:?} not found in scope", ident.into_inner()),
                         (ident.left, ident.right),
                     )
@@ -404,7 +401,6 @@ impl ProgramEnvironment {
                 })
                 .ok_or_else(|| {
                     TonyError::with_span(
-                        self.source_code.clone(),
                         format!("var ident {:?} not found in scope", ident.into_inner()),
                         (ident.left, ident.right),
                     )
@@ -447,7 +443,7 @@ impl ProgramEnvironment {
                 self.contains_expr_symbol(scope_uuid, expr_span_1.into_inner())?;
                 self.contains_expr_symbol(scope_uuid, expr_span_2.into_inner())
             }
-            ast::Expr::New(type_span, expr_span) => {
+            ast::Expr::New(_type_span, expr_span) => {
                 // TODO: check type
 
                 self.contains_expr_symbol(scope_uuid, expr_span.into_inner())

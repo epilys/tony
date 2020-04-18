@@ -1,10 +1,9 @@
-use super::*;
-
 lalrpop_mod!(grammar, "/parser/grammar.rs"); // synthesized by LALRPOP
 
 pub use grammar::*;
 
 /*
+#use super::*;
 /// Defines a primitive expression.
 #[derive(Debug)]
 pub enum Expr {
@@ -33,7 +32,7 @@ pub enum Expr {
         body: Box<Expr>,
     },
 
-    Number(f64),
+    Number(i64),
 
     Variable(String),
 

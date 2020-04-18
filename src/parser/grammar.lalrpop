@@ -16,11 +16,20 @@ CharConst: ast::CharConst = <c:CChar> => ast::CharConst(c);
 IntConst: ast::IntConst = <i:Number> => ast::IntConst(i.0, i.1);
 
 FuncDef: ast::Span<ast::FuncDef> = {
+  <l:@L> "decl" <header:Header> <r:@R> => {
+    span![ast::FuncDef {
+        header,
+        declarations: vec![],
+        body: vec![],
+        is_extern: true,
+    }; l, r]
+  },
   <l:@L> "def" <header:Header> ":" <decls:Decl*> <stmts:Stmt*> "end" <r:@R> => {
     span![ast::FuncDef {
         header,
         declarations: Vec::from_iter(decls.into_iter()),
         body: Vec::from_iter(stmts.into_iter()),
+        is_extern: false,
     }; l, r]
   },
 };
@@ -212,8 +221,9 @@ extern {
       IdentifierString => lexer::Token::Identifier(<String>),
       StringLiteral => lexer::Token::StringLiteral(<String>),
       CChar => lexer::Token::CChar(<char>),
-      Number => lexer::Token::Number(<f64>, <String>),
+      Number => lexer::Token::Number(<i64>, <String>),
       "def" => lexer::Token::Def,
+      "decl" => lexer::Token::Decl,
       "int" => lexer::Token::Int,
       "bool" => lexer::Token::Bool,
       "char" => lexer::Token::Char,

@@ -10,7 +10,7 @@
 
 extern crate inkwell;
 use std::collections::HashMap;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::iter::Peekable;
 use std::ops::DerefMut;
 use std::str::Chars;
@@ -28,7 +28,6 @@ mod lexer;
 use lexer::*;
 
 mod parser;
-use parser::*;
 
 mod symbols;
 
@@ -37,7 +36,7 @@ mod builtins;
 mod llvm;
 use llvm::*;
 
-const ANONYMOUS_FUNCTION_NAME: &str = "anonymous";
+//const ANONYMOUS_FUNCTION_NAME: &str = "anonymous";
 
 struct RunConfig {
     display_lexer_output: bool,
@@ -210,7 +209,8 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
                 lalrpop_util::ParseError::InvalidToken { ref location } => {
                     println!(
                         "{}",
-                        TonyError::with_offset(input.to_string(), "Invalid token", *location)
+                        TonyError::with_offset("Invalid token", *location)
+                            .display(input.to_string())
                     );
                 }
                 lalrpop_util::ParseError::UnrecognizedEOF {
@@ -219,7 +219,8 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
                 } => {
                     println!(
                         "{}",
-                        TonyError::with_offset(input.to_string(), "Unrecognized EOF", *location)
+                        TonyError::with_offset("Unrecognized EOF", *location)
+                            .display(input.to_string())
                     );
                     println!("Expected tokens: {}", expected.join(", "));
                 }
@@ -230,10 +231,10 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
                     println!(
                         "{}",
                         TonyError::with_span(
-                            input.to_string(),
                             format!("Unrecognized token: \"{}\"", &input[*l..*r]),
                             (*l, *r)
                         )
+                        .display(input.to_string())
                     );
                     println!("Expected tokens: {}", expected.join(", "));
                 }
@@ -243,14 +244,17 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
                     println!(
                         "{}",
                         TonyError::with_span(
-                            input.to_string(),
                             format!("Extra token of type {:?}: \"{}\"", t, &input[*l..*r]),
                             (*l, *r)
                         )
+                        .display(input.to_string())
                     );
                 }
                 lalrpop_util::ParseError::User { error: err } => {
-                    println!("{}", err.set_parser_kind().to_string());
+                    println!(
+                        "{}",
+                        err.set_parser_kind().display(input.to_string()).to_string()
+                    );
                 }
             }
             return Err(-1);
@@ -261,28 +265,28 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
         .iter()
         .map(|span| span.into_inner().header.0.var.id.into_inner())
         .any(|id| id.0 == "main")
-        && ast.0.len() != 1
     {
         println!("No main function found.");
         return Err(-1);
     }
 
-    let mut env = symbols::ProgramEnvironment::new_environment(input.to_string());
+    let mut env = symbols::ProgramEnvironment::new_environment();
 
     for funcdef in ast.0.iter() {
         if let Err(err) = env.insert_global_func(funcdef.into_inner().clone()) {
-            println!("{}", err.to_string());
+            println!("{}", err.display(input.to_string()));
             //eprintln!("{:#?}", &env);
             return Err(-1);
         }
     }
     let context = Context::create();
-    let module = context.create_module("main");
+    let module = context.create_module("bin");
     let builder = context.create_builder();
 
     // Create FPM
     let fpm = PassManager::create(&module);
 
+    /*
     fpm.add_instruction_combining_pass();
     fpm.add_reassociate_pass();
     fpm.add_gvn_pass();
@@ -291,9 +295,28 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
     fpm.add_promote_memory_to_register_pass();
     fpm.add_instruction_combining_pass();
     fpm.add_reassociate_pass();
+    */
 
     fpm.initialize();
     // make module
+    for funcdef in crate::builtins::builtins_to_funcdef() {
+        match Compiler::compile(&context, &builder, &fpm, &module, &funcdef) {
+            Ok(function) => {
+                if conf.display_compiler_output {
+                    // Not printing a new line since LLVM automatically
+                    // prefixes the generated string with one
+                    print!("Expression compiled to IR:");
+                    function.print_to_stderr();
+                }
+            }
+            Err(err) => {
+                println!(
+                    "!> Error compiling function: {}",
+                    err.display(input.to_string())
+                );
+            }
+        }
+    }
 
     for funcdef in ast.0.iter() {
         if conf.display_parser_output {
@@ -310,10 +333,66 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
                 }
             }
             Err(err) => {
-                println!("!> Error compiling function: {}", err);
+                println!(
+                    "!> Error compiling function: {}",
+                    err.display(input.to_string())
+                );
             }
         }
     }
     println!("cool beans");
+    use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
+    use inkwell::OptimizationLevel;
+
+    use std::path::Path;
+
+    let target_config = inkwell::targets::InitializationConfig::default();
+    /*
+        asm_parser: true,
+        asm_printer: true,
+        base: true,
+        disassembler: true,
+        info: true,
+        machine_code: true,
+    };*/
+    inkwell::targets::Target::initialize_native(&target_config).unwrap();
+    let opt = OptimizationLevel::None;
+    let reloc = RelocMode::PIC;
+    let model = CodeModel::Default;
+    let path = Path::new("./output.ll");
+    let target = Target::get_first().expect("Could not get native target");
+    let default_triple = TargetMachine::get_default_triple();
+    let target_machine = target
+        .create_target_machine(&default_triple, "generic", "", opt, reloc, model)
+        .unwrap();
+    let data_layout = target_machine.get_target_data().get_data_layout();
+
+    module.set_data_layout(&data_layout);
+    /*
+    target_machine
+        .write_to_file(&module, inkwell::targets:FileType::Object, &path)
+        .unwrap();
+    */
+    module.print_to_file(&path).unwrap();
+    println!(
+        "compiling.. {}",
+        String::from_utf8_lossy(
+            &std::process::Command::new("llc-8")
+                .args(&["-relocation-model=pic", "-filetype=obj", "output.ll"])
+                .output()
+                .unwrap()
+                .stderr
+        )
+    );
+    println!(
+        "linking.. {}",
+        String::from_utf8_lossy(
+            &std::process::Command::new("gcc")
+                .args(&["output.o", "target/debug/libruntime.so", "-o", "main"])
+                .output()
+                .unwrap()
+                .stderr
+        )
+    );
     Ok(())
 }

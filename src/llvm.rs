@@ -1,15 +1,14 @@
 use super::*;
 use crate::ast::*;
-use std::borrow::Borrow;
 
 use inkwell::builder::Builder;
 pub use inkwell::context::Context;
 use inkwell::module::Module;
 pub use inkwell::passes::PassManager;
 use inkwell::types::{BasicTypeEnum, FunctionType};
-use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, FunctionValue, PointerValue};
-use inkwell::values::{IntMathValue, IntValue};
-use inkwell::FloatPredicate; //, OptimizationLevel};
+use inkwell::values::IntValue;
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::{types::BasicType, AddressSpace};
 
 /// Defines the `Expr` compiler.
 pub struct Compiler<'a, 'ctx> {
@@ -20,6 +19,7 @@ pub struct Compiler<'a, 'ctx> {
     pub function: &'a FuncDef,
 
     variables: HashMap<String, PointerValue<'ctx>>,
+    functions: HashMap<String, FunctionValue<'ctx>>,
     fn_value_opt: Option<FunctionValue<'ctx>>,
 }
 
@@ -50,7 +50,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         builder.build_alloca(Compiler::tonytype_into_basictypenum(&self.context, t), name)
     }
 
-    fn compile_bool_expr(&'_ self, expr: &Span<Expr>) -> Result<IntValue<'_>, TonyError> {
+    fn compile_bool_expr(&self, expr: &Span<Expr>) -> Result<IntValue<'ctx>, TonyError> {
         match expr.into_inner() {
             Expr::True => Ok(self.context.bool_type().const_int(1, false)),
             Expr::False => Ok(self.context.bool_type().const_zero()),
@@ -68,8 +68,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let rhs = self.compile_bool_expr(right)?;
                 Ok(self.builder.build_or(lhs, rhs, "tmpor"))
             }
+            Expr::Atom(Atom::Id(id_span)) => {
+                let name = &id_span.into_inner().0.to_string();
+                let var = self.variables.get(name.as_str()).ok_or_else(|| {
+                    TonyError::with_span(
+                        format!("Undefined variable, found {:?}", id_span.into_inner()),
+                        (id_span.left, id_span.right),
+                    )
+                    .set_typecheck_kind()
+                })?;
+                //TODO typecheck
+                Ok(self
+                    .builder
+                    .build_load(*var, name.as_str())
+                    .into_int_value())
+            }
             _ => Err(TonyError::with_span(
-                String::new(),
                 format!("expected bool, found {:?}", expr.into_inner()),
                 (expr.left, expr.right),
             )
@@ -78,54 +92,232 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Compiles the specified `Expr`
-    fn compile_expr(
-        &'_ self,
-        expr: &Span<Expr>,
-    ) -> Result<Box<dyn BasicValue<'_> + '_>, TonyError> {
+    fn compile_expr(&self, expr: &Span<Expr>) -> Result<BasicValueEnum<'ctx>, TonyError> {
         match expr.into_inner() {
+            Expr::Atom(Atom::Call(Call(ident_span, arg_spans))) => {
+                return match self.get_function(ident_span.as_str()) {
+                    Some(fun) => {
+                        let mut compiled_args = Vec::with_capacity(arg_spans.len());
+
+                        for arg in arg_spans {
+                            compiled_args.push(self.compile_expr(arg)?);
+                        }
+
+                        let argsv: Vec<BasicValueEnum> =
+                            compiled_args.into_iter().map(|val| val.into()).collect();
+
+                        let val = match self
+                            .builder
+                            .build_call(fun, argsv.as_slice(), "tmp")
+                            .try_as_basic_value()
+                            .left()
+                        {
+                            Some(_value) => _value,
+                            None => {
+                                return Err(TonyError::with_span(
+                                    format!(
+                                        "Function {:?} returns void. ",
+                                        ident_span.into_inner()
+                                    ),
+                                    (ident_span.left, ident_span.right),
+                                )
+                                .set_typecheck_kind())
+                            }
+                        };
+                        Ok(val.into())
+                    }
+                    None => Err(TonyError::with_span(
+                        format!("Undefined function, found {:?}", ident_span.into_inner()),
+                        (ident_span.left, ident_span.right),
+                    )
+                    .set_typecheck_kind()),
+                };
+            }
+            Expr::Atom(Atom::Id(id_span)) => {
+                let name = &id_span.into_inner().0.to_string();
+                let var = self.variables.get(name.as_str()).ok_or_else(|| {
+                    TonyError::with_span(
+                        format!("Undefined variable, found {:?}", id_span.into_inner()),
+                        (id_span.left, id_span.right),
+                    )
+                    .set_typecheck_kind()
+                })?;
+                //TODO typecheck
+                return Ok(self.builder.build_load(*var, name.as_str()));
+            }
+            Expr::Atom(Atom::StringLiteral(string_literal)) => {
+                let global = unsafe {
+                    self.builder
+                        .build_global_string(string_literal.0.as_str(), string_literal.0.as_str())
+                };
+                let zero = self.context.i32_type().const_zero();
+                return Ok(unsafe {
+                    self.builder
+                        .build_gep(global.as_pointer_value(), &[zero, zero], "litptr_")
+                        .as_basic_value_enum()
+                });
+            }
             Expr::Atom(_) => {}
             Expr::IntConst(IntConst(v, _)) => {
-                return Ok(Box::new(self.context.f64_type().const_float(*v)));
+                return Ok(self
+                    .context
+                    .i64_type()
+                    .const_int(*v as u64, false)
+                    .as_basic_value_enum());
             }
             Expr::CharConst(CharConst(v)) => {
-                return Ok(Box::new(
-                    self.context.i32_type().const_int(*v as u32 as u64, false),
-                ));
+                return Ok(self
+                    .context
+                    .i8_type()
+                    .const_int(*v as u32 as u64, false)
+                    .as_basic_value_enum());
             }
             Expr::True | Expr::False | Expr::Not(_) | Expr::And(_, _) | Expr::Or(_, _) => {
-                return Ok(Box::new(self.compile_bool_expr(expr)?));
+                return Ok(self.compile_bool_expr(expr)?.as_basic_value_enum());
             }
-            Expr::Minus(expr_span) => {}
-            Expr::Op(expr_1_span, op, expr_2_span) => {}
-            Expr::New(type_span, expr_span) => {}
+            Expr::Minus(_expr_span) => {}
+            Expr::Op(left, op, right) => {
+                let lhs = self.compile_expr(left)?.into_int_value();
+                let rhs = self.compile_expr(right)?.into_int_value();
+                match op {
+                    Operator::Equals => {}
+                    Operator::NotEquals => {}
+                    Operator::Less => {}
+                    Operator::Greater => {}
+                    Operator::LessOrEqual => {}
+                    Operator::GreaterOrEqual => {}
+                    Operator::Div => {
+                        return Ok(self
+                            .builder
+                            .build_int_signed_div(lhs, rhs, "tmp_sub")
+                            .as_basic_value_enum());
+                    }
+                    Operator::Mod => {
+                        return Ok(self
+                            .builder
+                            .build_int_signed_rem(lhs, rhs, "tmp_sub")
+                            .as_basic_value_enum());
+                    }
+                    Operator::Times => {
+                        return Ok(self
+                            .builder
+                            .build_int_mul(lhs, rhs, "tmp_sub")
+                            .as_basic_value_enum());
+                    }
+                    Operator::Plus => {
+                        return Ok(self
+                            .builder
+                            .build_int_add(lhs, rhs, "tmp_sub")
+                            .as_basic_value_enum());
+                    }
+                    Operator::Minus => {
+                        return Ok(self
+                            .builder
+                            .build_int_sub(lhs, rhs, "tmp_sub")
+                            .as_basic_value_enum());
+                    }
+                }
+            }
+            Expr::New(_type_span, _expr_span) => {}
             Expr::Nil => {}
         }
         todo!()
     }
 
-    /// Compiles the specified `Stmt` into an LLVM `FloatValue`.
+    /// Compiles the specified `Stmt` into an LLVM `IntValue`.
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), TonyError> {
         println!("compiling stmt {:?}", stmt);
         match stmt {
             Stmt::Simple(Simple::Skip) => {}
-            Stmt::Simple(Simple::Call(call)) => {}
-            Stmt::Simple(Simple::Assignment(atom, expr_span)) => {}
+            Stmt::Simple(Simple::Call(Call(ident_span, arg_spans))) => {
+                return match self.get_function(ident_span.as_str()) {
+                    Some(fun) => {
+                        let mut compiled_args = Vec::with_capacity(arg_spans.len());
+
+                        for arg in arg_spans {
+                            compiled_args.push(self.compile_expr(arg)?);
+                        }
+
+                        let argsv: Vec<BasicValueEnum> =
+                            compiled_args.into_iter().map(|val| val.into()).collect();
+
+                        self.builder.build_call(fun, argsv.as_slice(), "tmp");
+                        Ok(())
+                    }
+                    None => Err(TonyError::with_span(
+                        format!("Undefined function, found {:?}", ident_span.into_inner()),
+                        (ident_span.left, ident_span.right),
+                    )
+                    .set_typecheck_kind()),
+                };
+            }
+            Stmt::Simple(Simple::Assignment(Atom::StringLiteral(_), _)) => {} // NOP
+            Stmt::Simple(Simple::Assignment(Atom::AtomIndex(_), _)) => todo!(),
+            Stmt::Simple(Simple::Assignment(Atom::Id(id_span), expr_span)) => {
+                let var_name = id_span.into_inner().0.as_str();
+
+                let var_val = self.compile_expr(expr_span)?;
+                let var = self.variables.get(var_name).ok_or_else(|| {
+                    TonyError::with_span(
+                        format!("Undefined variable, found {:?}", id_span.into_inner()),
+                        (id_span.left, id_span.right),
+                    )
+                    .set_typecheck_kind()
+                })?;
+
+                self.builder.build_store(*var, var_val);
+
+                return Ok(());
+            }
+            Stmt::Simple(Simple::Assignment(_atom, _val_span)) => {}
             Stmt::Exit => {}
             Stmt::Return(expr_span) => {
                 let ret = self.compile_expr(expr_span)?;
-                self.builder.build_return(Some(&(*ret)));
+                self.builder.build_return(Some(&ret));
                 return Ok(());
             }
             Stmt::Control(StmtType::If {
                 condition: condition_expr_span,
                 body: body_stmt_spans,
-                _else: _else_stmt_spans,
-            }) => {}
+                _else: else_stmt_spans,
+            }) => {
+                let parent = self.fn_value();
+
+                // create condition by comparing without 0.0 and returning an int
+                let cond = self.compile_bool_expr(&condition_expr_span)?;
+
+                // build branch
+                let then_bb = self.context.append_basic_block(parent, "then");
+                let else_bb = self.context.append_basic_block(parent, "else");
+                let cont_bb = self.context.append_basic_block(parent, "ifcont");
+
+                self.builder
+                    .build_conditional_branch(cond, then_bb, else_bb);
+
+                // build then block
+                self.builder.position_at_end(then_bb);
+                for stmt in body_stmt_spans.iter() {
+                    self.compile_stmt(stmt.into_inner())?;
+                }
+                self.builder.build_unconditional_branch(cont_bb);
+
+                // build else block
+                self.builder.position_at_end(else_bb);
+                for stmt in else_stmt_spans.iter() {
+                    self.compile_stmt(stmt.into_inner())?;
+                }
+                self.builder.build_unconditional_branch(cont_bb);
+
+                // emit merge block
+                self.builder.position_at_end(cont_bb);
+
+                return Ok(());
+            }
             Stmt::Control(StmtType::For {
-                init,
-                condition: condition_expr_span,
-                eval,
-                body: body_stmt_spans,
+                init: _init,
+                condition: _condition_expr_span,
+                eval: _eval,
+                body: _body_stmt_spans,
             }) => {}
         }
         todo!() /*
@@ -420,14 +612,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             .collect::<Vec<BasicTypeEnum>>();
         let args_types = args_types.as_slice();
 
-        let fn_type = Compiler::tonytype_into_fn_typenum(
-            &self.context,
-            fn_vardef.var.tony_type.into_inner(),
-            args_types,
-        );
-        let fn_val =
-            self.module
-                .add_function(fn_vardef.var.id.into_inner().0.as_str(), fn_type, None);
+        let fn_type = if fn_vardef.var.as_str() == "main" {
+            self.context.i64_type().fn_type(&[], false)
+        } else {
+            Compiler::tonytype_into_fn_typenum(
+                &self.context,
+                fn_vardef.var.tony_type.into_inner(),
+                args_types,
+            )
+        };
+        let fn_val = self
+            .module
+            .add_function(fn_vardef.var.as_str(), fn_type, None);
 
         // set arguments names
         for (i, arg) in fn_val.get_param_iter().enumerate() {
@@ -435,13 +631,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 arg.into_pointer_value().set_name(arg_decls[i].var.as_str());
             } else {
                 match arg_decls[i].var.tony_type.into_inner() {
-                    TonyType::Int => arg.into_float_value().set_name(arg_decls[i].var.as_str()),
+                    TonyType::Int => arg.into_int_value().set_name(arg_decls[i].var.as_str()),
                     TonyType::Bool | TonyType::Char => {
                         arg.into_int_value().set_name(arg_decls[i].var.as_str())
                     }
                     TonyType::Unit => todo!(),
                     TonyType::Array(_) => {
-                        arg.into_array_value().set_name(arg_decls[i].var.as_str())
+                        arg.into_pointer_value().set_name(arg_decls[i].var.as_str())
                     }
                     TonyType::List(_) => {
                         arg.into_vector_value().set_name(arg_decls[i].var.as_str())
@@ -460,8 +656,26 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let function = self.compile_prototype(proto)?;
 
         // got external function, returning only compiled prototype
-        if self.function.body.is_empty() {
+        if self.function.is_extern {
             return Ok(function);
+        }
+        for decl_span in self.function.declarations.iter() {
+            match decl_span.into_inner() {
+                crate::ast::Decl::Func(funcdef_span) => {
+                    let function = Self::compile(
+                        self.context,
+                        self.builder,
+                        self.fpm,
+                        self.module,
+                        funcdef_span.into_inner(),
+                    )?;
+                    self.functions.insert(
+                        funcdef_span.into_inner().header.0.var.as_str().to_string(),
+                        function,
+                    );
+                }
+                crate::ast::Decl::Var(_) => {}
+            }
         }
 
         let entry = self.context.append_basic_block(function, "entry");
@@ -485,17 +699,37 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 .insert((proto.1)[i].var.as_str().to_string(), alloca);
         }
 
+        for decl_span in self.function.declarations.iter() {
+            match decl_span.into_inner() {
+                crate::ast::Decl::Func(_) => {}
+                crate::ast::Decl::Var(vardefs) => {
+                    for vardef in vardefs {
+                        let var_name = vardef.as_str();
+                        let var_type = vardef.tony_type.into_inner();
+                        let alloca = self.create_entry_block_alloca(var_name, var_type);
+
+                        self.variables.insert(var_name.to_string(), alloca);
+                    }
+                }
+            }
+        }
         for stmt in self.function.body.iter() {
             self.compile_stmt(stmt)?;
         }
-        if self.function.body.is_empty() || proto.0.var.tony_type.into_inner() == &TonyType::Unit {
-            self.builder.build_return(None);
+        let entry = self.fn_value().get_last_basic_block().unwrap();
+        if entry.get_last_instruction().map(|i| i.get_opcode())
+            != Some(inkwell::values::InstructionOpcode::Return)
+        {
+            if self.function.header.0.var.as_str() == "main" {
+                self.builder.position_at_end(entry);
+                self.builder
+                    .build_return(Some(&self.context.i64_type().const_zero()));
+            } else if self.function.body.is_empty()
+                || proto.0.var.tony_type.into_inner() == &TonyType::Unit
+            {
+                self.builder.build_return(None);
+            }
         }
-        /*
-        // compile body
-        let body = self.compile_stmt(self.function.body.as_ref().unwrap())?;
-        self.builder.build_return(Some(&body));
-        */
 
         // return the whole thing after verification and optimization
         if function.verify(true) {
@@ -507,7 +741,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 function.delete();
             }
 
-            Err(TonyError::new(String::new(), "Invalid generated function."))
+            Err(TonyError::new("Invalid generated function."))
         }
     }
 
@@ -527,6 +761,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             function,
             fn_value_opt: None,
             variables: HashMap::new(),
+            functions: HashMap::new(),
         };
 
         compiler.compile_fn()
@@ -534,18 +769,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     fn tonytype_into_basictypenum(context: &'ctx Context, t: &TonyType) -> BasicTypeEnum<'ctx> {
         match t {
-            TonyType::Int => context.f64_type().into(),
+            TonyType::Int => context.i64_type().into(),
             TonyType::Bool => context.bool_type().into(),
-            TonyType::Char => context.i32_type().into(),
+            TonyType::Char => context.i8_type().into(),
             TonyType::Unit => todo!(),
             TonyType::Array(span_type) => {
                 Compiler::tonytype_into_basictypenum(context, span_type.into_inner())
-                    .into_array_type()
+                    .ptr_type(AddressSpace::Generic)
                     .into()
             }
             TonyType::List(span_type) => {
                 Compiler::tonytype_into_basictypenum(context, span_type.into_inner())
-                    .into_vector_type()
+                    .into_pointer_type()
+                    .vec_type(0)
                     .into()
             }
         }
@@ -557,18 +793,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         args: &[BasicTypeEnum<'ctx>],
     ) -> FunctionType<'ctx> {
         match t {
-            TonyType::Int => context.f64_type().fn_type(args, false),
+            TonyType::Int => context.i64_type().fn_type(args, false),
             TonyType::Bool => context.bool_type().fn_type(args, false),
-            TonyType::Char => context.i32_type().fn_type(args, false),
+            TonyType::Char => context.i8_type().fn_type(args, false),
             TonyType::Unit => context.void_type().fn_type(args, false),
             TonyType::Array(span_type) => {
                 Compiler::tonytype_into_basictypenum(context, span_type.into_inner())
-                    .into_array_type()
+                    .ptr_type(AddressSpace::Generic)
                     .fn_type(args, false)
             }
             TonyType::List(span_type) => {
                 Compiler::tonytype_into_basictypenum(context, span_type.into_inner())
-                    .into_vector_type()
+                    .into_pointer_type()
+                    .vec_type(0)
                     .fn_type(args, false)
             }
         }

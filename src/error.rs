@@ -1,10 +1,11 @@
-#[derive(Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 enum Pos {
     Index(usize, usize),
     Span(usize, usize),
+    Offset(usize),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum TonyErrorKind {
     Lexer,
     Parser,
@@ -13,11 +14,10 @@ enum TonyErrorKind {
 }
 
 /// Defines an error encountered by the `Tonyer`.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TonyError {
     kind: TonyErrorKind,
     pub error: String,
-    pub source_code: String,
     pos: Pos,
 }
 macro_rules! set_fn {
@@ -32,54 +32,42 @@ macro_rules! set_fn {
     }
 
 impl TonyError {
-    pub fn new<I: Into<String>>(source_code: String, msg: I) -> TonyError {
+    pub fn new<I: Into<String>>(msg: I) -> TonyError {
         TonyError {
             kind: TonyErrorKind::Lexer,
             error: msg.into(),
-            source_code,
             pos: Pos::Index(0, 0),
         }
     }
 
-    pub fn with_index<I: Into<String>>(
-        source_code: String,
-        msg: I,
-        index: (usize, usize),
-    ) -> TonyError {
+    pub fn with_index<I: Into<String>>(msg: I, index: (usize, usize)) -> TonyError {
         TonyError {
             kind: TonyErrorKind::Lexer,
             error: msg.into(),
-            source_code,
             pos: Pos::Index(index.0, index.1),
         }
     }
 
-    pub fn with_offset<I: Into<String>>(source_code: String, msg: I, offset: usize) -> TonyError {
-        let mut lines = 0;
-        let mut line_offset = 0;
-        let prev_line = source_code[..offset].rfind("\n").unwrap_or(0);
-        for l in source_code[..prev_line].split_n() {
-            lines += 1;
-            line_offset += l.len();
-        }
+    pub fn with_offset<I: Into<String>>(msg: I, offset: usize) -> TonyError {
         TonyError {
             kind: TonyErrorKind::Lexer,
             error: msg.into(),
-            source_code,
-            pos: Pos::Index(lines, offset.saturating_sub(line_offset + 1)),
+            pos: Pos::Offset(offset),
         }
     }
 
-    pub fn with_span<I: Into<String>>(
-        source_code: String,
-        msg: I,
-        span: (usize, usize),
-    ) -> TonyError {
+    pub fn with_span<I: Into<String>>(msg: I, span: (usize, usize)) -> TonyError {
         TonyError {
             kind: TonyErrorKind::Lexer,
             error: msg.into(),
-            source_code,
             pos: Pos::Span(span.0, span.1),
+        }
+    }
+
+    pub fn display(self, source_code: String) -> TonyErrorDisplay {
+        TonyErrorDisplay {
+            inner: self,
+            source_code,
         }
     }
 
@@ -88,33 +76,49 @@ impl TonyError {
     set_fn!(set_typecheck_kind, TonyErrorKind::TypeCheck);
 }
 
-impl std::fmt::Display for TonyError {
+#[derive(Debug)]
+pub struct TonyErrorDisplay {
+    inner: TonyError,
+    source_code: String,
+}
+impl std::fmt::Display for TonyErrorDisplay {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let index = match self.pos {
+        let Self { source_code, inner } = self;
+        let index = match inner.pos {
             Pos::Index(line, col) => (line, col),
             Pos::Span(left, _right) => {
                 let mut lines = 0;
                 let mut line_offset = 0;
-                let prev_line = self.source_code[..left].rfind("\n").unwrap_or(0);
-                for l in self.source_code[..prev_line].split_n() {
+                let prev_line = source_code[..left].rfind("\n").unwrap_or(0);
+                for l in source_code[..prev_line].split_n() {
                     lines += 1;
                     line_offset += l.len();
                 }
                 (lines, left.saturating_sub(line_offset + 1))
             }
+            Pos::Offset(offset) => {
+                let mut lines = 0;
+                let mut line_offset = 0;
+                let prev_line = source_code[..offset].rfind("\n").unwrap_or(0);
+                for l in source_code[..prev_line].split_n() {
+                    lines += 1;
+                    line_offset += l.len();
+                }
+                (lines, offset.saturating_sub(line_offset + 1))
+            }
         };
         let line_num_s = (index.0 + 1).to_string();
         let indent_length = line_num_s.len() + 3;
         let indent = " ".repeat(indent_length);
-        match self.pos {
-            Pos::Index(_, _) => write!(
+        match inner.pos {
+            Pos::Index(_, _) | Pos::Offset(_) => write!(
                 fmt,
                 "{bold}{red}{:?} Error{reset}{bold} Line {}, Column {}: {error}\n{blue}{indent}|\n   {line_num_s}|{reset}{line}\n{bold}{blue}{indent}|{space}{red}{pointer}{reset}",
-                self.kind,
+                inner.kind,
                 index.0 + 1,
                 index.1 + 1,
-                line = self.source_code.lines().nth(index.0).unwrap().trim_end(),
-                error = &self.error,
+                line = source_code.lines().nth(index.0).unwrap().trim_end(),
+                error = &inner.error,
                 space = " ".repeat(index.1),
                 pointer = "^",
                 line_num_s = line_num_s,
@@ -127,11 +131,11 @@ impl std::fmt::Display for TonyError {
             Pos::Span(l, r) => write!(
                 fmt,
                 "{bold}{red}{:?} Error{reset}{bold} Line {}, Column {}: {error}\n{blue}{indent}|\n   {line_num_s}|{reset}{line}\n{bold}{blue}{indent}|{space}{red}{pointer}{reset}",
-                self.kind,
+                inner.kind,
                 index.0 + 1,
                 index.1 + 1,
-                line = self.source_code.lines().nth(index.0).unwrap().trim_end(),
-                error = &self.error,
+                line = source_code.lines().nth(index.0).unwrap().trim_end(),
+                error = &inner.error,
                 space = " ".repeat(index.1),
                 pointer = "^".repeat(r - l),
                 line_num_s = line_num_s,

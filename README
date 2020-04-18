@@ -1,0 +1,4 @@
+$ ./compiler hello_world.bf
+$ llc -filetype=obj hello_world.ll
+$ gcc hello_world.o -o hello_world
+$ ./hello_world

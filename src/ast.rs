@@ -1,12 +1,17 @@
 use std::fmt;
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct Identifier(pub String);
+impl Identifier {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct StringLiteral(pub String);
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct CharConst(pub char);
 #[derive(Debug, Clone)]
-pub struct IntConst(pub f64, pub String);
+pub struct IntConst(pub i64, pub String);
 
 use std::ops::Deref;
 
@@ -29,7 +34,7 @@ impl std::cmp::Eq for IntConst {}
 pub struct Span<T: std::fmt::Debug + Clone + PartialEq + Eq> {
     pub left: usize,
     pub right: usize,
-    inner: T,
+    pub inner: T,
 }
 
 impl<T: std::fmt::Debug + Clone + PartialEq + Eq> Span<T> {
@@ -60,6 +65,7 @@ pub struct FuncDef {
     pub header: (Formal, Vec<Formal>),
     pub declarations: Vec<Span<Decl>>,
     pub body: Vec<Span<Stmt>>,
+    pub is_extern: bool,
 }
 
 impl fmt::Display for FuncDef {

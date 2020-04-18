@@ -48,26 +48,31 @@ macro_rules! print_flush {
 /// decl puts(char[] s)
 /// ```
 #[no_mangle]
-pub extern "C" fn tony_puti(x: i64) -> () {
+pub extern "C" fn puti(x: i64) -> () {
     print_flush!("{}", x);
 }
 
 #[no_mangle]
-pub extern "C" fn tony_putb(b: bool) -> () {
+pub extern "C" fn putb(b: bool) -> () {
     print_flush!("{}", if b { "true" } else { "false" });
 }
 
 #[no_mangle]
-pub extern "C" fn tony_putc(c: std::os::raw::c_int) -> () {
+pub extern "C" fn putc(c: std::os::raw::c_int) -> () {
     unsafe {
         libc::putchar(c);
     };
 }
 
 #[no_mangle]
-pub extern "C" fn tony_puts(c: *const std::os::raw::c_char) -> () {
+pub extern "C" fn puts(c: *const std::os::raw::c_char) -> () {
     unsafe {
-        libc::puts(c);
+        libc::printf(
+            std::ffi::CString::new("%s")
+                .expect("CString::new failed")
+                .as_ptr(),
+            c,
+        );
     };
 }
 
@@ -101,15 +106,15 @@ pub extern "C" fn tony_puts(c: *const std::os::raw::c_char) -> () {
 /// μετατρέπουν από ένα χαρακτήρα στον αντίστοιχο κωδικό ASCII και αντίστροφα.
 ///
 #[no_mangle]
-pub extern "C" fn tony_abs(x: i64) -> i64 {
+pub extern "C" fn abs(x: i64) -> i64 {
     x.abs()
 }
 #[no_mangle]
-pub extern "C" fn tony_ord(c: char) -> i64 {
+pub extern "C" fn ord(c: char) -> i64 {
     c as u32 as i64
 }
 #[no_mangle]
-pub extern "C" fn tony_chr(i: i64) -> char {
+pub extern "C" fn chr(i: i64) -> char {
     i as i64 as u8 as char
 }
 
@@ -124,42 +129,33 @@ pub extern "C" fn tony_chr(i: i64) -> char {
 /// συναρτήσεων της γλώσσας C.
 
 #[no_mangle]
-pub extern "C" fn tony_strlen(c: *const std::os::raw::c_char) -> i64 {
+pub extern "C" fn strlen(c: *const std::os::raw::c_char) -> i64 {
     (unsafe { libc::strlen(c) }) as i64
 }
 
 #[no_mangle]
-pub extern "C" fn tony_strcmp(
-    s1: *const std::os::raw::c_char,
-    s2: *const std::os::raw::c_char,
-) -> i64 {
+pub extern "C" fn strcmp(s1: *const std::os::raw::c_char, s2: *const std::os::raw::c_char) -> i64 {
     (unsafe { libc::strcmp(s1, s2) }) as i64
 }
 
 #[no_mangle]
-pub extern "C" fn tony_strcpy(
-    trg: *mut std::os::raw::c_char,
-    src: *const std::os::raw::c_char,
-) -> () {
+pub extern "C" fn strcpy(trg: *mut std::os::raw::c_char, src: *const std::os::raw::c_char) -> () {
     unsafe { libc::strcpy(trg, src) };
 }
 
 #[no_mangle]
-pub extern "C" fn tony_strcat(
-    trg: *mut std::os::raw::c_char,
-    src: *const std::os::raw::c_char,
-) -> () {
+pub extern "C" fn strcat(trg: *mut std::os::raw::c_char, src: *const std::os::raw::c_char) -> () {
     unsafe { libc::strcat(trg, src) };
 }
 
 //#[no_mangle]
-//pub extern "C" fn tony_putchard(x: i64) -> i64 {
+//pub extern "C" fn putchard(x: i64) -> i64 {
 //    print_flush!("{}", x as u8 as char);
 //    x
 //}
 //
 //#[no_mangle]
-//pub extern "C" fn tony_printd(x: i64) -> i64 {
+//pub extern "C" fn printd(x: i64) -> i64 {
 //    println!("{}", x);
 //    x
 //}
@@ -168,13 +164,10 @@ pub extern "C" fn tony_strcat(
 //// so Rust compiler won't remove them.
 //#[used]
 //static EXTERNAL_FNS: [extern "C" fn(i64) -> ;64; 2] = [putchard, printd];
-
-const EXTERNAL_FNS: &'static str = include_str!("../examples/builtins.tony");
-
-use crate::ast::*;
-pub fn builtins_to_funcdef() -> Vec<FuncDef> {
-    let Program(ret) = crate::parser::ProgramParser::new()
-        .parse(crate::lexer::Lexer::new(EXTERNAL_FNS))
-        .unwrap();
-    ret.into_iter().map(|Span { inner, .. }| inner).collect()
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_works() {
+        assert_eq!(2 + 2, 4);
+    }
 }

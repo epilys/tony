@@ -2,7 +2,7 @@ use super::*;
 
 // κτικές μονάδες της γλώσσας Tony χωρίζονται στις παρακάτω κατηγορίες:
 /// Represents a primitive syntax token.
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
     // Τις λέξεις κλειδιά, οι οποίες είναι οι παρακάτω:
     // and end list ref char false new skip decl for nil tail def head nil?  true else if not elif int or
@@ -62,16 +62,12 @@ pub enum Token {
     // Σχόλια μιας γραμμής, τα οποία αρχίζουν με το χαρακτήρα % και τερματίζονται με το τέλος της τρέχουσας γραμμής.
     // Σχόλια πολλών γραμμών, τα οποία αρχίζουν με την ακολουθία χαρακτήρων <* και τερματίζονται με την ακολουθία χαρακτήρων *> . Τα σχόλια αυτής της μορφής επιτρέπεται να είναι φωλιασμένα.
     Comment,
-    Binary,
     EOF,
     Extern,
     Identifier(String),
     StringLiteral(String),
-    In,
-    Number(f64, String),
+    Number(i64, String),
     Op(char),
-    Then,
-    Unary,
     Var,
 }
 
@@ -162,15 +158,6 @@ impl<'a> Lexer<'a> {
 
         //println!("Next char is {:?} {:?}", next, src[start..].chars().next());
         // Actually get the next token.
-        macro_rules! lit_token {
-            ($lit:literal, $t:expr) => {{
-                for _ in 1..$lit.len() {
-                    let ch = chars.next().unwrap();
-                    advance_pos!(ch);
-                }
-                Ok((start, $t, pos))
-            }};
-        }
         let result = match c {
             '+' => Ok((start, Token::Plus, pos)),
             '-' => Ok((start, Token::Minus, pos)),
@@ -238,8 +225,7 @@ impl<'a> Lexer<'a> {
                         None => break,
                     };
 
-                    // Parse float.
-                    if ch != '.' && !ch.is_digit(16) {
+                    if !ch.is_digit(10) {
                         break;
                     }
 
@@ -251,7 +237,6 @@ impl<'a> Lexer<'a> {
 
                 match src[start..pos].parse() {
                     Err(err) => Err(TonyError::with_span(
-                        self.input.to_string(),
                         format!("Error while parsing number literal: {}", err),
                         (start, pos),
                     )),
@@ -259,36 +244,6 @@ impl<'a> Lexer<'a> {
                     Ok(ok) => Ok((start, Token::Number(ok, src[start..pos].to_string()), pos)),
                 }
             }
-            _ if src[start..].starts_with("and") => lit_token!("and", Token::And),
-            _ if src[start..].starts_with("bool") => lit_token!("bool", Token::Bool),
-            _ if src[start..].starts_with("char") => lit_token!("char", Token::Char),
-            _ if src[start..].starts_with("decl") => lit_token!("decl", Token::Decl),
-            _ if src[start..].starts_with("def") => lit_token!("def", Token::Def),
-            _ if src[start..].starts_with("elif") => lit_token!("elif", Token::Elif),
-            _ if src[start..].starts_with("elsif") => lit_token!("elsif", Token::Elif),
-            _ if src[start..].starts_with("else") => lit_token!("else", Token::Else),
-            _ if src[start..].starts_with("end") => lit_token!("end", Token::End),
-            _ if src[start..].starts_with("exit") => lit_token!("exit", Token::Exit),
-            _ if src[start..].starts_with("extern") => lit_token!("extern", Token::Extern),
-            _ if src[start..].starts_with("false") => lit_token!("false", Token::False),
-            _ if src[start..].starts_with("for") => lit_token!("for", Token::For),
-            _ if src[start..].starts_with("head") => lit_token!("head", Token::Head),
-            _ if src[start..].starts_with("if") => lit_token!("if", Token::If),
-            _ if src[start..].starts_with("int") => lit_token!("int", Token::Int),
-            _ if src[start..].starts_with("list") => lit_token!("list", Token::List),
-            _ if src[start..].starts_with("mod") => lit_token!("mod", Token::Mod),
-            _ if src[start..].starts_with("new") => lit_token!("new", Token::New),
-            _ if src[start..].starts_with("nil?") => lit_token!("nil?", Token::NilQ),
-            _ if src[start..].starts_with("nil") => lit_token!("nil", Token::Nil),
-            _ if src[start..].starts_with("not") => lit_token!("not", Token::Not),
-            _ if src[start..].starts_with("or") => lit_token!("or", Token::Or),
-            _ if src[start..].starts_with("ref") => lit_token!("ref", Token::Ref),
-            _ if src[start..].starts_with("return") => lit_token!("return", Token::Return),
-            _ if src[start..].starts_with("skip") => lit_token!("skip", Token::Skip),
-            _ if src[start..].starts_with("tail") => lit_token!("tail", Token::Tail),
-            _ if src[start..].starts_with("then") => lit_token!("then", Token::Then),
-            _ if src[start..].starts_with("true") => lit_token!("true", Token::True),
-            _ if src[start..].starts_with("var") => lit_token!("var", Token::Var),
             'a'..='z' | 'A'..='Z' | '_' => {
                 // Parse identifier
                 //println!("Parse identifier");
@@ -307,26 +262,116 @@ impl<'a> Lexer<'a> {
                     advance_pos!(ch);
                 }
                 //println!("token = {:?}", &src[start..pos]);
-
-                Ok((start, Token::Identifier(src[start..pos].to_string()), pos))
+                match &src[start..pos] {
+                    "and" => Ok((start, Token::And, pos)),
+                    "bool" => Ok((start, Token::Bool, pos)),
+                    "char" => Ok((start, Token::Char, pos)),
+                    "decl" => Ok((start, Token::Decl, pos)),
+                    "def" => Ok((start, Token::Def, pos)),
+                    "elif" => Ok((start, Token::Elif, pos)),
+                    "elsif" => Ok((start, Token::Elif, pos)),
+                    "else" => Ok((start, Token::Else, pos)),
+                    "end" => Ok((start, Token::End, pos)),
+                    "exit" => Ok((start, Token::Exit, pos)),
+                    "extern" => Ok((start, Token::Extern, pos)),
+                    "false" => Ok((start, Token::False, pos)),
+                    "for" => Ok((start, Token::For, pos)),
+                    "head" => Ok((start, Token::Head, pos)),
+                    "if" => Ok((start, Token::If, pos)),
+                    "int" => Ok((start, Token::Int, pos)),
+                    "list" => Ok((start, Token::List, pos)),
+                    "mod" => Ok((start, Token::Mod, pos)),
+                    "new" => Ok((start, Token::New, pos)),
+                    "nil?" => Ok((start, Token::NilQ, pos)),
+                    "nil" => Ok((start, Token::Nil, pos)),
+                    "not" => Ok((start, Token::Not, pos)),
+                    "or" => Ok((start, Token::Or, pos)),
+                    "ref" => Ok((start, Token::Ref, pos)),
+                    "return" => Ok((start, Token::Return, pos)),
+                    "skip" => Ok((start, Token::Skip, pos)),
+                    "tail" => Ok((start, Token::Tail, pos)),
+                    "true" => Ok((start, Token::True, pos)),
+                    "var" => Ok((start, Token::Var, pos)),
+                    _ => Ok((start, Token::Identifier(src[start..pos].to_string()), pos)),
+                }
             }
             quot @ '\'' | quot @ '’' => {
                 // Parse Char constant
-                let ch = match chars.next() {
+                let mut ch = match chars.next() {
                     Some(ch) => ch,
                     None => {
                         return Err(TonyError::with_index(
-                            self.input.to_string(),
                             format!("Encountered EOF while parsing char literal",),
                             (self.line, self.col),
                         ));
                     }
                 };
                 advance_pos!(ch);
+                /* Ακολουθία διαφυγής
+                 *  \n   ο χαρακτήρας αλλαγής γραμμής (line feed)
+                 *  \t   ο χαρακτήρας στηλοθέτησης (tab)
+                 *  \r   ο χαρακτήρας επιστροφής στην αρχή της γραμμής (carriage return)
+                 *  \0   ο χαρακτήρας με ASCII κωδικό 0
+                 *  \\   ο χαρακτήρας \ (backslash)
+                 *  \’   ο χαρακτήρας ’ (απλό εισαγωγικό)
+                 *  \”   ο χαρακτήρας ” (διπλό εισαγωγικό)
+                 *  \xnn ο χαρακτήρας με ASCII κωδικό nn στο δεκαεξαδικό σύστημα
+                 */
+                if ch == '\\' {
+                    ch = match chars.next() {
+                        Some('n') => '\n',
+                        Some('t') => '\t',
+                        Some('r') => '\r',
+                        Some('0') => '\0',
+                        Some('\\') => '\\',
+                        Some('’') => '’',
+                        Some('\'') => '\'',
+                        Some('”') => '”',
+                        Some('"') => '"',
+                        Some('x') => {
+                            if src[start..].len() < 2 {
+                                return Err(TonyError::with_index(
+                                    format!("Encountered EOF while parsing char literal.",),
+                                    (self.line, self.col),
+                                ));
+                            }
+                            use std::convert::TryFrom;
+                            match u32::from_str_radix(&src[start..start + 2], 16)
+                                .ok()
+                                .and_then(|hex_num| char::try_from(hex_num).ok())
+                            {
+                                Some(ascii) => {
+                                    advance_pos!(chars.next().unwrap());
+                                    advance_pos!(chars.next().unwrap());
+                                    ascii
+                                }
+                                None => {
+                                    return Err(TonyError::with_index(
+                                        format!("Invalid hex while parsing char literal.",),
+                                        (self.line, self.col),
+                                    ));
+                                }
+                            }
+                        }
+                        Some(ch) => {
+                            return Err(TonyError::with_index(
+                                format!("Unrecognized start of escape sequence: {}", ch),
+                                (self.line, self.col),
+                            ));
+                        }
+                        None => {
+                            return Err(TonyError::with_index(
+                                format!("Encountered EOF while parsing char literal.",),
+                                (self.line, self.col),
+                            ));
+                        }
+                    };
+                    advance_pos!(ch);
+                }
+
                 let next = match chars.next() {
                     Some(ch) if ch != quot => {
                         return Err(TonyError::with_index(
-                            self.input.to_string(),
                             format!("Char literal not properly closed with {}", quot),
                             (self.line, self.col),
                         ));
@@ -334,7 +379,6 @@ impl<'a> Lexer<'a> {
                     Some(ch) => ch,
                     None => {
                         return Err(TonyError::with_index(
-                            self.input.to_string(),
                             format!("Encountered EOF while parsing char literal"),
                             (self.line, self.col),
                         ));
@@ -346,30 +390,112 @@ impl<'a> Lexer<'a> {
             quot @ '”' | quot @ '"' => {
                 // Parse string constant
                 //println!("Parse string constant");
-                let mut prev = quot;
-                loop {
-                    let ch = match chars.peek() {
-                        Some(ch) => *ch,
-                        None => break,
+                let mut escape_next = false;
+                let mut s = String::new();
+                'string_literal_loop: loop {
+                    let ch;
+                    match chars.peek() {
+                        Some(ch) if *ch == quot && !escape_next => {
+                            chars.next();
+                            advance_pos!(quot);
+                            break 'string_literal_loop;
+                        }
+                        Some(&'n') if escape_next => {
+                            ch = '\n';
+                            escape_next = false;
+                        }
+                        Some(&'t') if escape_next => {
+                            ch = '\t';
+                            escape_next = false;
+                        }
+                        Some(&'r') if escape_next => {
+                            ch = '\r';
+                            escape_next = false;
+                        }
+                        Some(&'0') if escape_next => {
+                            ch = '\0';
+                            escape_next = false;
+                        }
+                        Some(&'\\') => {
+                            ch = '\\';
+                            if !escape_next {
+                                escape_next = true;
+                            } else {
+                                escape_next = false;
+                            }
+                        }
+                        Some(&'’') if escape_next => {
+                            ch = '’';
+                            escape_next = false;
+                        }
+                        Some(&'\'') if escape_next => {
+                            ch = '\'';
+                            escape_next = false;
+                        }
+                        Some(&'”') if escape_next => {
+                            ch = '”';
+                            escape_next = false;
+                        }
+                        Some(&'"') if escape_next => {
+                            ch = '"';
+                            escape_next = false;
+                        }
+                        Some(&'x') if escape_next => {
+                            escape_next = false;
+                            if src[pos + 1..].len() < 2 {
+                                return Err(TonyError::with_index(
+                                    format!("Encountered EOF while parsing string literal.",),
+                                    (self.line, self.col),
+                                ));
+                            }
+                            use std::convert::TryFrom;
+                            match u32::from_str_radix(&src[pos + 1..pos + 3], 16)
+                                .ok()
+                                .and_then(|hex_num| char::try_from(hex_num).ok())
+                            {
+                                Some(ascii) => {
+                                    advance_pos!(chars.next().unwrap());
+                                    advance_pos!(chars.next().unwrap());
+                                    ch = ascii;
+                                }
+                                None => {
+                                    return Err(TonyError::with_index(
+                                        format!("Invalid hex in parsing string literal.",),
+                                        (self.line, self.col),
+                                    ));
+                                }
+                            }
+                        }
+                        Some(ch) if escape_next => {
+                            return Err(TonyError::with_index(
+                                format!(
+                                    "Invalid escape sequence in parsing string literal.: \\{}",
+                                    *ch
+                                ),
+                                (self.line, self.col),
+                            ));
+                        }
+                        Some(&'\n') => {
+                            return Err(TonyError::with_index(
+                                format!("Encountered new line while parsing string literal",),
+                                (self.line, self.col),
+                            ));
+                        }
+                        Some(p) => {
+                            ch = *p;
+                        }
+                        None => {
+                            return Err(TonyError::with_index(
+                                format!("Encountered EOF while parsing string literal",),
+                                (self.line, self.col),
+                            ));
+                        }
                     };
-                    if ch == quot && prev != '\\' {
-                        chars.next();
-                        prev = ch;
-                        break;
-                    } else if ch == '\n' {
-                        return Err(TonyError::with_index(
-                            self.input.to_string(),
-                            format!("Encountered new line while parsing string literal",),
-                            (self.line, self.col),
-                        ));
+                    advance_pos!(chars.next().unwrap());
+                    if !escape_next {
+                        s.push(ch);
                     }
-
-                    chars.next();
-                    prev = ch;
-                    advance_pos!(ch);
                 }
-                let s = src[start + quot.len_utf8()..pos].to_string();
-                advance_pos!(prev);
                 Ok((start, Token::StringLiteral(s), pos))
             }
 
@@ -400,4 +526,36 @@ impl<'a> Iterator for Lexer<'a> {
             err @ Err(_) => Some(err),
         }
     }
+}
+
+#[test]
+fn test_lexer_constants() {
+    let input = "'\\n'";
+    assert_eq!(Lexer::new(input).lex(), Ok((0, Token::CChar('\n'), 4)));
+    let input = "'\\z'";
+    assert!(Lexer::new(input).lex().is_err());
+    let input = "'c'";
+    assert_eq!(Lexer::new(input).lex(), Ok((0, Token::CChar('c'), 3)));
+    let input = "'c";
+    assert!(Lexer::new(input).lex().is_err());
+    let input = r#""Hello world.""#;
+    assert_eq!(
+        Lexer::new(input).lex(),
+        Ok((0, Token::StringLiteral("Hello world.".to_string()), 14))
+    );
+    let input = r#""Hello world.\n""#;
+    assert_eq!(
+        Lexer::new(input).lex(),
+        Ok((0, Token::StringLiteral("Hello world.\n".to_string()), 16))
+    );
+    let input = r#""Hello world.\x0A""#;
+    assert_eq!(
+        Lexer::new(input).lex(),
+        Ok((0, Token::StringLiteral("Hello world.\n".to_string()), 18))
+    );
+    let input = r#""Hello world.\x0z""#;
+    assert!(Lexer::new(input).lex().is_err());
+    let input = r#""Hello world.
+    ""#;
+    assert!(Lexer::new(input).lex().is_err());
 }
