@@ -337,6 +337,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
                     "!> Error compiling function: {}",
                     err.display(input.to_string())
                 );
+                Err(1)?
             }
         }
     }

@@ -11,6 +11,8 @@ enum TonyErrorKind {
     Parser,
     SymbolTableCheck,
     TypeCheck,
+    SemanticCheck,
+    LLVMVerify,
 }
 
 /// Defines an error encountered by the `Tonyer`.
@@ -74,6 +76,8 @@ impl TonyError {
     set_fn!(set_parser_kind, TonyErrorKind::Parser);
     set_fn!(set_symbol_table_kind, TonyErrorKind::SymbolTableCheck);
     set_fn!(set_typecheck_kind, TonyErrorKind::TypeCheck);
+    set_fn!(set_semantic_kind, TonyErrorKind::SemanticCheck);
+    set_fn!(set_llvm_verify_kind, TonyErrorKind::LLVMVerify);
 }
 
 #[derive(Debug)]

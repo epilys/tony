@@ -30,21 +30,31 @@ impl std::cmp::PartialEq for IntConst {
 }
 impl std::cmp::Eq for IntConst {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Span<T: std::fmt::Debug + Clone + PartialEq + Eq> {
     pub left: usize,
     pub right: usize,
     pub inner: T,
 }
 
+impl<T: std::fmt::Debug + Clone + PartialEq + Eq> fmt::Debug for Span<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(self.into_inner(), f)
+    }
+}
+
 impl<T: std::fmt::Debug + Clone + PartialEq + Eq> Span<T> {
+    #[inline(always)]
     pub fn into_inner(&self) -> &T {
         &self.inner
     }
+
+    #[inline(always)]
     pub fn span(&self) -> (usize, usize) {
         (self.left, self.right)
     }
 
+    #[inline(always)]
     pub fn new(inner: T, left: usize, right: usize) -> Span<T> {
         Span { left, right, inner }
     }
@@ -150,7 +160,7 @@ impl fmt::Debug for TonyType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
-    Simple(Simple),
+    Simple(Span<Simple>),
     Exit,
     Return(Box<Span<Expr>>),
     Control(StmtType),
@@ -164,9 +174,9 @@ pub enum StmtType {
         _else: Vec<Span<Stmt>>,
     },
     For {
-        init: Vec<Simple>,
+        init: Vec<Span<Simple>>,
         condition: Box<Span<Expr>>,
-        eval: Vec<Simple>,
+        eval: Vec<Span<Simple>>,
         body: Vec<Span<Stmt>>,
     },
 }
@@ -221,7 +231,7 @@ impl fmt::Debug for Call {
 pub enum Atom {
     Id(Span<Identifier>),
     StringLiteral(StringLiteral),
-    AtomIndex(Box<Span<Expr>>),
+    AtomIndex(Box<Atom>, Box<Span<Expr>>),
     Call(Call),
 }
 
@@ -230,7 +240,7 @@ impl fmt::Debug for Atom {
         match self {
             Atom::Id(Span { inner: ident, .. }) => ident.fmt(f),
             Atom::StringLiteral(lit) => lit.fmt(f),
-            Atom::AtomIndex(sp) => sp.into_inner().fmt(f),
+            Atom::AtomIndex(atom, expr_span) => write!(f, "{:?}[{:?}]", atom, expr_span),
             Atom::Call(call) => call.fmt(f),
         }
     }

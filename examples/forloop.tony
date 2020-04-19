@@ -1,0 +1,10 @@
+def printstar(int n):
+  int i
+  for i := 0; i < n; i := i + 1:
+    putc(chr(42))  % ascii 42 = '*'
+  end
+end
+
+def main():
+  printstar(100)
+end

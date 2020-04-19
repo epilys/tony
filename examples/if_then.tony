@@ -1,0 +1,15 @@
+def bool check(int v):
+  if v > 1: return true end
+  return false
+end
+
+def int main ():
+  int c
+  c := 42
+  puts(”Hello world!\n”)
+  puts("check(")
+  puti(c)
+  puts(") > 10?\n")
+  putb(check(c))
+  putc('\n')
+end

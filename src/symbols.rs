@@ -340,7 +340,7 @@ impl ProgramEnvironment {
         let ret = match atom {
             ast::Atom::Id(ident_span) => self.contains_var_symbol(scope_uuid, ident_span),
             ast::Atom::StringLiteral(_) => Ok(()),
-            ast::Atom::AtomIndex(_expr) => todo!(),
+            ast::Atom::AtomIndex(_atom, _expr) => todo!(),
             ast::Atom::Call(ast::Call(ident_span, exprs)) => {
                 self.contains_func_symbol(scope_uuid, ident_span)?;
                 exprs

@@ -8,7 +8,7 @@ pub use inkwell::passes::PassManager;
 use inkwell::types::{BasicTypeEnum, FunctionType};
 use inkwell::values::IntValue;
 use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue};
-use inkwell::{types::BasicType, AddressSpace};
+use inkwell::{types::BasicType, AddressSpace, IntPredicate};
 
 /// Defines the `Expr` compiler.
 pub struct Compiler<'a, 'ctx> {
@@ -73,7 +73,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let var = self.variables.get(name.as_str()).ok_or_else(|| {
                     TonyError::with_span(
                         format!("Undefined variable, found {:?}", id_span.into_inner()),
-                        (id_span.left, id_span.right),
+                        id_span.span(),
                     )
                     .set_typecheck_kind()
                 })?;
@@ -83,9 +83,63 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .build_load(*var, name.as_str())
                     .into_int_value())
             }
+            Expr::Op(left, Operator::Equals, right) => {
+                let lhs = self.compile_expr(left)?.into_int_value();
+                let rhs = self.compile_expr(right)?.into_int_value();
+                Ok({
+                    self.builder
+                        .build_int_compare(IntPredicate::EQ, lhs, rhs, "tmpcmp")
+                })
+            }
+            Expr::Op(left, Operator::NotEquals, right) => {
+                let lhs = self.compile_expr(left)?.into_int_value();
+                let rhs = self.compile_expr(right)?.into_int_value();
+                Ok({
+                    self.builder
+                        .build_int_compare(IntPredicate::NE, lhs, rhs, "tmpcmp")
+                })
+            }
+            Expr::Op(left, Operator::Less, right) => {
+                let lhs = self.compile_expr(left)?.into_int_value();
+                let rhs = self.compile_expr(right)?.into_int_value();
+                Ok({
+                    self.builder
+                        .build_int_compare(IntPredicate::SLT, lhs, rhs, "tmpcmp")
+                })
+            }
+            Expr::Op(left, Operator::Greater, right) => {
+                let lhs = self.compile_expr(left)?.into_int_value();
+                let rhs = self.compile_expr(right)?.into_int_value();
+                Ok({
+                    self.builder
+                        .build_int_compare(IntPredicate::SGT, lhs, rhs, "tmpcmp")
+                })
+            }
+            Expr::Op(left, Operator::LessOrEqual, right) => {
+                let lhs = self.compile_expr(left)?.into_int_value();
+                let rhs = self.compile_expr(right)?.into_int_value();
+                Ok({
+                    self.builder
+                        .build_int_compare(IntPredicate::SLE, lhs, rhs, "tmpcmp")
+                })
+            }
+            Expr::Op(left, Operator::GreaterOrEqual, right) => {
+                let lhs = self.compile_expr(left)?.into_int_value();
+                let rhs = self.compile_expr(right)?.into_int_value();
+                Ok({
+                    self.builder
+                        .build_int_compare(IntPredicate::SGE, lhs, rhs, "tmpcmp")
+                })
+            }
+            Expr::Op(_, op, _) => Err(TonyError::with_span(
+                format!("expected bool expression, found {:?} operation", op),
+                expr.span(),
+            )
+            .set_typecheck_kind()),
+            Expr::Atom(Atom::Call(_)) => Ok(self.compile_expr(expr)?.into_int_value()),
             _ => Err(TonyError::with_span(
                 format!("expected bool, found {:?}", expr.into_inner()),
-                (expr.left, expr.right),
+                expr.span(),
             )
             .set_typecheck_kind()),
         }
@@ -119,7 +173,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                         "Function {:?} returns void. ",
                                         ident_span.into_inner()
                                     ),
-                                    (ident_span.left, ident_span.right),
+                                    ident_span.span(),
                                 )
                                 .set_typecheck_kind())
                             }
@@ -128,7 +182,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                     None => Err(TonyError::with_span(
                         format!("Undefined function, found {:?}", ident_span.into_inner()),
-                        (ident_span.left, ident_span.right),
+                        ident_span.span(),
                     )
                     .set_typecheck_kind()),
                 };
@@ -138,7 +192,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let var = self.variables.get(name.as_str()).ok_or_else(|| {
                     TonyError::with_span(
                         format!("Undefined variable, found {:?}", id_span.into_inner()),
-                        (id_span.left, id_span.right),
+                        id_span.span(),
                     )
                     .set_typecheck_kind()
                 })?;
@@ -157,7 +211,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         .as_basic_value_enum()
                 });
             }
-            Expr::Atom(_) => {}
+            Expr::Atom(Atom::AtomIndex(_, _)) => todo!(),
             Expr::IntConst(IntConst(v, _)) => {
                 return Ok(self
                     .context
@@ -176,16 +230,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 return Ok(self.compile_bool_expr(expr)?.as_basic_value_enum());
             }
             Expr::Minus(_expr_span) => {}
+            Expr::Op(_, Operator::Equals, _)
+            | Expr::Op(_, Operator::NotEquals, _)
+            | Expr::Op(_, Operator::Less, _)
+            | Expr::Op(_, Operator::Greater, _)
+            | Expr::Op(_, Operator::LessOrEqual, _)
+            | Expr::Op(_, Operator::GreaterOrEqual, _) => {
+                return Ok(self.compile_bool_expr(expr)?.as_basic_value_enum());
+            }
             Expr::Op(left, op, right) => {
                 let lhs = self.compile_expr(left)?.into_int_value();
                 let rhs = self.compile_expr(right)?.into_int_value();
                 match op {
-                    Operator::Equals => {}
-                    Operator::NotEquals => {}
-                    Operator::Less => {}
-                    Operator::Greater => {}
-                    Operator::LessOrEqual => {}
-                    Operator::GreaterOrEqual => {}
                     Operator::Div => {
                         return Ok(self
                             .builder
@@ -216,6 +272,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                             .build_int_sub(lhs, rhs, "tmp_sub")
                             .as_basic_value_enum());
                     }
+                    Operator::Equals
+                    | Operator::NotEquals
+                    | Operator::Less
+                    | Operator::Greater
+                    | Operator::LessOrEqual
+                    | Operator::GreaterOrEqual => unsafe { std::hint::unreachable_unchecked() },
                 }
             }
             Expr::New(_type_span, _expr_span) => {}
@@ -224,12 +286,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         todo!()
     }
 
-    /// Compiles the specified `Stmt` into an LLVM `IntValue`.
-    fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), TonyError> {
-        println!("compiling stmt {:?}", stmt);
-        match stmt {
-            Stmt::Simple(Simple::Skip) => {}
-            Stmt::Simple(Simple::Call(Call(ident_span, arg_spans))) => {
+    fn compile_simple(&mut self, simple: &Span<Simple>) -> Result<(), TonyError> {
+        match simple.into_inner() {
+            Simple::Skip => Ok(()), // Skip is NOP
+            Simple::Call(Call(ident_span, arg_spans)) => {
                 return match self.get_function(ident_span.as_str()) {
                     Some(fun) => {
                         let mut compiled_args = Vec::with_capacity(arg_spans.len());
@@ -246,21 +306,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                     None => Err(TonyError::with_span(
                         format!("Undefined function, found {:?}", ident_span.into_inner()),
-                        (ident_span.left, ident_span.right),
+                        ident_span.span(),
                     )
                     .set_typecheck_kind()),
                 };
             }
-            Stmt::Simple(Simple::Assignment(Atom::StringLiteral(_), _)) => {} // NOP
-            Stmt::Simple(Simple::Assignment(Atom::AtomIndex(_), _)) => todo!(),
-            Stmt::Simple(Simple::Assignment(Atom::Id(id_span), expr_span)) => {
+            Simple::Assignment(Atom::StringLiteral(_), _) => todo!(), // NOP?
+            Simple::Assignment(Atom::AtomIndex(_, _), _) => todo!(),
+            Simple::Assignment(Atom::Id(id_span), expr_span) => {
                 let var_name = id_span.into_inner().0.as_str();
 
                 let var_val = self.compile_expr(expr_span)?;
                 let var = self.variables.get(var_name).ok_or_else(|| {
                     TonyError::with_span(
                         format!("Undefined variable, found {:?}", id_span.into_inner()),
-                        (id_span.left, id_span.right),
+                        id_span.span(),
                     )
                     .set_typecheck_kind()
                 })?;
@@ -269,12 +329,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 return Ok(());
             }
-            Stmt::Simple(Simple::Assignment(_atom, _val_span)) => {}
-            Stmt::Exit => {}
+            Simple::Assignment(Atom::Call(_), _) => todo!(),
+        }
+    }
+
+    /// Compiles the specified `Stmt` into an LLVM `IntValue`.
+    fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), TonyError> {
+        //println!("compiling stmt {:?}", stmt);
+        match stmt {
+            Stmt::Simple(simple_span) => self.compile_simple(simple_span),
+            Stmt::Exit => {
+                self.builder.build_return(None);
+                Ok(())
+            }
             Stmt::Return(expr_span) => {
                 let ret = self.compile_expr(expr_span)?;
                 self.builder.build_return(Some(&ret));
-                return Ok(());
+                Ok(())
             }
             Stmt::Control(StmtType::If {
                 condition: condition_expr_span,
@@ -283,10 +354,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }) => {
                 let parent = self.fn_value();
 
-                // create condition by comparing without 0.0 and returning an int
                 let cond = self.compile_bool_expr(&condition_expr_span)?;
 
-                // build branch
                 let then_bb = self.context.append_basic_block(parent, "then");
                 let else_bb = self.context.append_basic_block(parent, "else");
                 let cont_bb = self.context.append_basic_block(parent, "ifcont");
@@ -294,309 +363,369 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.builder
                     .build_conditional_branch(cond, then_bb, else_bb);
 
-                // build then block
                 self.builder.position_at_end(then_bb);
                 for stmt in body_stmt_spans.iter() {
                     self.compile_stmt(stmt.into_inner())?;
                 }
-                self.builder.build_unconditional_branch(cont_bb);
+                if then_bb.get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(cont_bb);
+                }
+                //let then_bb = self.builder.get_insert_block().unwrap();
 
-                // build else block
                 self.builder.position_at_end(else_bb);
                 for stmt in else_stmt_spans.iter() {
                     self.compile_stmt(stmt.into_inner())?;
                 }
-                self.builder.build_unconditional_branch(cont_bb);
+                if else_bb.get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(cont_bb);
+                }
+                //let else_bb = self.builder.get_insert_block().unwrap();
 
-                // emit merge block
                 self.builder.position_at_end(cont_bb);
+                //let phi = self.builder.build_phi(self.context.i64_type(), "iftmp");
 
-                return Ok(());
+                //let zero_const = self.context.i64_type().const_zero();
+                //phi.add_incoming(&[(&zero_const, then_bb), (&zero_const, else_bb)]);
+
+                //Ok(phi.as_basic_value().into_int_value())
+
+                Ok(())
             }
             Stmt::Control(StmtType::For {
-                init: _init,
-                condition: _condition_expr_span,
-                eval: _eval,
-                body: _body_stmt_spans,
-            }) => {}
+                init: init_list,
+                condition: condition_expr_span,
+                eval: eval_list,
+                body: body_stmt_spans,
+            }) => {
+                for s in init_list {
+                    self.compile_simple(s)?;
+                }
+                let parent = self.fn_value();
+
+                /*
+                 * - append loop block
+                 * - branch to loop block
+                 * - position to loop block
+                 * - check condition
+                 * - branch if condition is false to merge block
+                 * - execute body
+                 * - execute eval
+                 * - unconditional jump to loop block
+                 * - append merge block
+                 */
+                // go from current block to loop block
+                let cond_bb = self.context.append_basic_block(parent, "forcond");
+                let loop_bb = self.context.append_basic_block(parent, "forloop");
+                let eval_bb = self.context.append_basic_block(parent, "foreval");
+                let cont_bb = self.context.append_basic_block(parent, "forcont");
+
+                self.builder.build_unconditional_branch(cond_bb);
+                self.builder.position_at_end(cond_bb);
+                // check condition
+                let cond = self.compile_bool_expr(&condition_expr_span)?;
+
+                // - branch if condition is false to merge block
+
+                self.builder
+                    .build_conditional_branch(cond, loop_bb, cont_bb);
+                // - execute body
+                self.builder.position_at_end(loop_bb);
+
+                // emit body
+                for stmt in body_stmt_spans.iter() {
+                    self.compile_stmt(stmt.into_inner())?;
+                }
+                if loop_bb.get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(eval_bb);
+                }
+                self.builder.position_at_end(eval_bb);
+
+                // eval
+                for s in eval_list {
+                    self.compile_simple(s)?;
+                }
+                self.builder.build_unconditional_branch(cond_bb);
+                self.builder.position_at_end(cont_bb);
+                Ok(())
+            }
         }
-        todo!() /*
-                    match *expr {
-                        Expr::Number(nb) => Ok(self.context.f64_type().const_float(nb)),
+        /*
+            match *expr {
+                Expr::Number(nb) => Ok(self.context.f64_type().const_float(nb)),
 
-                        Expr::Variable(ref name) => match self.variables.get(name.as_str()) {
-                            Some(var) => Ok(self
-                                .builder
-                                .build_load(*var, name.as_str())
-                                .into_float_value()),
-                            None => Err("Could not find a matching variable."),
-                        },
+                Expr::Variable(ref name) => match self.variables.get(name.as_str()) {
+                    Some(var) => Ok(self
+                        .builder
+                        .build_load(*var, name.as_str())
+                        .into_float_value()),
+                    None => Err("Could not find a matching variable."),
+                },
 
-                        Expr::VarIn {
-                            ref variables,
-                            ref body,
-                        } => {
-                            let mut old_bindings = Vec::new();
+                Expr::VarIn {
+                    ref variables,
+                    ref body,
+                } => {
+                    let mut old_bindings = Vec::new();
 
-                            for &(ref var_name, ref initializer) in variables {
-                                let var_name = var_name.as_str();
+                    for &(ref var_name, ref initializer) in variables {
+                        let var_name = var_name.as_str();
 
-                                let initial_val = match *initializer {
-                                    Some(ref init) => self.compile_stmt(init)?,
-                                    None => self.context.f64_type().const_float(0.),
-                                };
+                        let initial_val = match *initializer {
+                            Some(ref init) => self.compile_stmt(init)?,
+                            None => self.context.f64_type().const_float(0.),
+                        };
 
-                                let alloca = self.create_entry_block_alloca(var_name);
+                        let alloca = self.create_entry_block_alloca(var_name);
 
-                                self.builder.build_store(alloca, initial_val);
+                        self.builder.build_store(alloca, initial_val);
 
-                                if let Some(old_binding) = self.variables.remove(var_name) {
-                                    old_bindings.push(old_binding);
-                                }
-
-                                self.variables.insert(var_name.to_string(), alloca);
-                            }
-
-                            let body = self.compile_stmt(body)?;
-
-                            for binding in old_bindings {
-                                self.variables
-                                    .insert(binding.get_name().to_str().unwrap().to_string(), binding);
-                            }
-
-                            Ok(body)
+                        if let Some(old_binding) = self.variables.remove(var_name) {
+                            old_bindings.push(old_binding);
                         }
 
-                        Expr::Binary {
-                            op,
-                            ref left,
-                            ref right,
-                        } => {
-                            if op == '=' {
-                                // handle assignement
-                                let var_name = match *left.borrow() {
-                                    Expr::Variable(ref var_name) => var_name,
-                                    _ => {
-                                        return Err("Expected variable as left-hand operator of assignement.");
-                                    }
-                                };
+                        self.variables.insert(var_name.to_string(), alloca);
+                    }
 
-                                let var_val = self.compile_stmt(right)?;
-                                let var = self
-                                    .variables
-                                    .get(var_name.as_str())
-                                    .ok_or("Undefined variable.")?;
+                    let body = self.compile_stmt(body)?;
 
-                                self.builder.build_store(*var, var_val);
+                    for binding in old_bindings {
+                        self.variables
+                            .insert(binding.get_name().to_str().unwrap().to_string(), binding);
+                    }
 
-                                Ok(var_val)
-                            } else {
-                                let lhs = self.compile_stmt(left)?;
-                                let rhs = self.compile_stmt(right)?;
+                    Ok(body)
+                }
 
-                                match op {
-                                    '+' => Ok(self.builder.build_float_add(lhs, rhs, "tmpadd")),
-                                    '-' => Ok(self.builder.build_float_sub(lhs, rhs, "tmpsub")),
-                                    '*' => Ok(self.builder.build_float_mul(lhs, rhs, "tmpmul")),
-                                    '/' => Ok(self.builder.build_float_div(lhs, rhs, "tmpdiv")),
-                                    '<' => Ok({
-                                        let cmp = self.builder.build_float_compare(
-                                            FloatPredicate::ULT,
-                                            lhs,
-                                            rhs,
-                                            "tmpcmp",
-                                        );
+                Expr::Binary {
+                    op,
+                    ref left,
+                    ref right,
+                } => {
+                    if op == '=' {
+                        // handle assignement
+                        let var_name = match *left.borrow() {
+                            Expr::Variable(ref var_name) => var_name,
+                            _ => {
+                                return Err("Expected variable as left-hand operator of assignement.");
+                            }
+                        };
 
-                                        self.builder.build_unsigned_int_to_float(
-                                            cmp,
-                                            self.context.f64_type(),
-                                            "tmpbool",
-                                        )
-                                    }),
-                                    '>' => Ok({
-                                        let cmp = self.builder.build_float_compare(
-                                            FloatPredicate::ULT,
-                                            rhs,
-                                            lhs,
-                                            "tmpcmp",
-                                        );
+                        let var_val = self.compile_stmt(right)?;
+                        let var = self
+                            .variables
+                            .get(var_name.as_str())
+                            .ok_or("Undefined variable.")?;
 
-                                        self.builder.build_unsigned_int_to_float(
-                                            cmp,
-                                            self.context.f64_type(),
-                                            "tmpbool",
-                                        )
-                                    }),
+                        self.builder.build_store(*var, var_val);
 
-                                    custom => {
-                                        let mut name = String::from("binary");
+                        Ok(var_val)
+                    } else {
+                        let lhs = self.compile_stmt(left)?;
+                        let rhs = self.compile_stmt(right)?;
 
-                                        name.push(custom);
+                        match op {
+                            '+' => Ok(self.builder.build_float_add(lhs, rhs, "tmpadd")),
+                            '-' => Ok(self.builder.build_float_sub(lhs, rhs, "tmpsub")),
+                            '*' => Ok(self.builder.build_float_mul(lhs, rhs, "tmpmul")),
+                            '/' => Ok(self.builder.build_float_div(lhs, rhs, "tmpdiv")),
+                            '<' => Ok({
+                                let cmp = self.builder.build_float_compare(
+                                    FloatPredicate::ULT,
+                                    lhs,
+                                    rhs,
+                                    "tmpcmp",
+                                );
 
-                                        match self.get_function(name.as_str()) {
-                                            Some(fun) => {
-                                                match self
-                                                    .builder
-                                                    .build_call(fun, &[lhs.into(), rhs.into()], "tmpbin")
-                                                    .try_as_basic_value()
-                                                    .left()
-                                                {
-                                                    Some(value) => Ok(value.into_float_value()),
-                                                    None => Err("Invalid call produced."),
-                                                }
-                                            }
+                                self.builder.build_unsigned_int_to_float(
+                                    cmp,
+                                    self.context.f64_type(),
+                                    "tmpbool",
+                                )
+                            }),
+                            '>' => Ok({
+                                let cmp = self.builder.build_float_compare(
+                                    FloatPredicate::ULT,
+                                    rhs,
+                                    lhs,
+                                    "tmpcmp",
+                                );
 
-                                            None => Err("Undefined binary operator."),
+                                self.builder.build_unsigned_int_to_float(
+                                    cmp,
+                                    self.context.f64_type(),
+                                    "tmpbool",
+                                )
+                            }),
+
+                            custom => {
+                                let mut name = String::from("binary");
+
+                                name.push(custom);
+
+                                match self.get_function(name.as_str()) {
+                                    Some(fun) => {
+                                        match self
+                                            .builder
+                                            .build_call(fun, &[lhs.into(), rhs.into()], "tmpbin")
+                                            .try_as_basic_value()
+                                            .left()
+                                        {
+                                            Some(value) => Ok(value.into_float_value()),
+                                            None => Err("Invalid call produced."),
                                         }
                                     }
+
+                                    None => Err("Undefined binary operator."),
                                 }
                             }
-                        }
-
-                        Expr::Call {
-                            ref fn_name,
-                            ref args,
-                        } => match self.get_function(fn_name.as_str()) {
-                            Some(fun) => {
-                                let mut compiled_args = Vec::with_capacity(args.len());
-
-                                for arg in args {
-                                    compiled_args.push(self.compile_stmt(arg)?);
-                                }
-
-                                let argsv: Vec<BasicValueEnum> = compiled_args
-                                    .iter()
-                                    .by_ref()
-                                    .map(|&val| val.into())
-                                    .collect();
-
-                                match self
-                                    .builder
-                                    .build_call(fun, argsv.as_slice(), "tmp")
-                                    .try_as_basic_value()
-                                    .left()
-                                {
-                                    Some(value) => Ok(value.into_float_value()),
-                                    None => Err("Invalid call produced."),
-                                }
-                            }
-                            None => Err("Unknown function."),
-                        },
-
-                        Expr::Conditional {
-                            ref cond,
-                            ref consequence,
-                            ref alternative,
-                        } => {
-                            let parent = self.fn_value();
-                            let zero_const = self.context.f64_type().const_float(0.0);
-
-                            // create condition by comparing without 0.0 and returning an int
-                            let cond = self.compile_stmt(cond)?;
-                            let cond = self.builder.build_float_compare(
-                                FloatPredicate::ONE,
-                                cond,
-                                zero_const,
-                                "ifcond",
-                            );
-
-                            // build branch
-                            let then_bb = self.context.append_basic_block(parent, "then");
-                            let else_bb = self.context.append_basic_block(parent, "else");
-                            let cont_bb = self.context.append_basic_block(parent, "ifcont");
-
-                            self.builder
-                                .build_conditional_branch(cond, then_bb, else_bb);
-
-                            // build then block
-                            self.builder.position_at_end(then_bb);
-                            let then_val = self.compile_stmt(consequence)?;
-                            self.builder.build_unconditional_branch(cont_bb);
-
-                            let then_bb = self.builder.get_insert_block().unwrap();
-
-                            // build else block
-                            self.builder.position_at_end(else_bb);
-                            let else_val = self.compile_stmt(alternative)?;
-                            self.builder.build_unconditional_branch(cont_bb);
-
-                            let else_bb = self.builder.get_insert_block().unwrap();
-
-                            // emit merge block
-                            self.builder.position_at_end(cont_bb);
-
-                            let phi = self.builder.build_phi(self.context.f64_type(), "iftmp");
-
-                            phi.add_incoming(&[(&then_val, then_bb), (&else_val, else_bb)]);
-
-                            Ok(phi.as_basic_value().into_float_value())
-                        }
-
-                        Expr::For {
-                            ref var_name,
-                            ref start,
-                            ref end,
-                            ref step,
-                            ref body,
-                        } => {
-                            let parent = self.fn_value();
-
-                            let start_alloca = self.create_entry_block_alloca(var_name);
-                            let start = self.compile_stmt(start)?;
-
-                            self.builder.build_store(start_alloca, start);
-
-                            // go from current block to loop block
-                            let loop_bb = self.context.append_basic_block(parent, "loop");
-
-                            self.builder.build_unconditional_branch(loop_bb);
-                            self.builder.position_at_end(loop_bb);
-
-                            let old_val = self.variables.remove(var_name.as_str());
-
-                            self.variables.insert(var_name.to_owned(), start_alloca);
-
-                            // emit body
-                            self.compile_stmt(body)?;
-
-                            // emit step
-                            let step = match *step {
-                                Some(ref step) => self.compile_stmt(step)?,
-                                None => self.context.f64_type().const_float(1.0),
-                            };
-
-                            // compile end condition
-                            let end_cond = self.compile_stmt(end)?;
-
-                            let curr_var = self.builder.build_load(start_alloca, var_name);
-                            let next_var =
-                                self.builder
-                                    .build_float_add(curr_var.into_float_value(), step, "nextvar");
-
-                            self.builder.build_store(start_alloca, next_var);
-
-                            let end_cond = self.builder.build_float_compare(
-                                FloatPredicate::ONE,
-                                end_cond,
-                                self.context.f64_type().const_float(0.0),
-                                "loopcond",
-                            );
-                            let after_bb = self.context.append_basic_block(parent, "afterloop");
-
-                            self.builder
-                                .build_conditional_branch(end_cond, loop_bb, after_bb);
-                            self.builder.position_at_end(after_bb);
-
-                            self.variables.remove(var_name);
-
-                            if let Some(val) = old_val {
-                                self.variables.insert(var_name.to_owned(), val);
-                            }
-
-                            Ok(self.context.f64_type().const_float(0.0))
                         }
                     }
-                */
+                }
+
+                Expr::Call {
+                    ref fn_name,
+                    ref args,
+                } => match self.get_function(fn_name.as_str()) {
+                    Some(fun) => {
+                        let mut compiled_args = Vec::with_capacity(args.len());
+
+                        for arg in args {
+                            compiled_args.push(self.compile_stmt(arg)?);
+                        }
+
+                        let argsv: Vec<BasicValueEnum> = compiled_args
+                            .iter()
+                            .by_ref()
+                            .map(|&val| val.into())
+                            .collect();
+
+                        match self
+                            .builder
+                            .build_call(fun, argsv.as_slice(), "tmp")
+                            .try_as_basic_value()
+                            .left()
+                        {
+                            Some(value) => Ok(value.into_float_value()),
+                            None => Err("Invalid call produced."),
+                        }
+                    }
+                    None => Err("Unknown function."),
+                },
+
+                Expr::Conditional {
+                    ref cond,
+                    ref consequence,
+                    ref alternative,
+                } => {
+                    let parent = self.fn_value();
+                    let zero_const = self.context.f64_type().const_float(0.0);
+
+                    // create condition by comparing without 0.0 and returning an int
+                    let cond = self.compile_stmt(cond)?;
+                    let cond = self.builder.build_float_compare(
+                        FloatPredicate::ONE,
+                        cond,
+                        zero_const,
+                        "ifcond",
+                    );
+
+                    // build branch
+                    let then_bb = self.context.append_basic_block(parent, "then");
+                    let else_bb = self.context.append_basic_block(parent, "else");
+                    let cont_bb = self.context.append_basic_block(parent, "ifcont");
+
+                    self.builder
+                        .build_conditional_branch(cond, then_bb, else_bb);
+
+                    // build then block
+                    self.builder.position_at_end(then_bb);
+                    let then_val = self.compile_stmt(consequence)?;
+                    self.builder.build_unconditional_branch(cont_bb);
+
+                    let then_bb = self.builder.get_insert_block().unwrap();
+
+                    // build else block
+                    self.builder.position_at_end(else_bb);
+                    let else_val = self.compile_stmt(alternative)?;
+                    self.builder.build_unconditional_branch(cont_bb);
+
+                    let else_bb = self.builder.get_insert_block().unwrap();
+
+                    // emit merge block
+                    self.builder.position_at_end(cont_bb);
+
+                    let phi = self.builder.build_phi(self.context.f64_type(), "iftmp");
+
+                    phi.add_incoming(&[(&then_val, then_bb), (&else_val, else_bb)]);
+
+                    Ok(phi.as_basic_value().into_float_value())
+                }
+
+                Expr::For {
+                    ref var_name,
+                    ref start,
+                    ref end,
+                    ref step,
+                    ref body,
+                } => {
+                    let parent = self.fn_value();
+
+                    let start_alloca = self.create_entry_block_alloca(var_name);
+                    let start = self.compile_stmt(start)?;
+
+                    self.builder.build_store(start_alloca, start);
+
+                    // go from current block to loop block
+                    let loop_bb = self.context.append_basic_block(parent, "loop");
+
+                    self.builder.build_unconditional_branch(loop_bb);
+                    self.builder.position_at_end(loop_bb);
+
+                    let old_val = self.variables.remove(var_name.as_str());
+
+                    self.variables.insert(var_name.to_owned(), start_alloca);
+
+                    // emit body
+                    self.compile_stmt(body)?;
+
+                    // emit step
+                    let step = match *step {
+                        Some(ref step) => self.compile_stmt(step)?,
+                        None => self.context.f64_type().const_float(1.0),
+                    };
+
+                    // compile end condition
+                    let end_cond = self.compile_stmt(end)?;
+
+                    let curr_var = self.builder.build_load(start_alloca, var_name);
+                    let next_var =
+                        self.builder
+                            .build_float_add(curr_var.into_float_value(), step, "nextvar");
+
+                    self.builder.build_store(start_alloca, next_var);
+
+                    let end_cond = self.builder.build_float_compare(
+                        FloatPredicate::ONE,
+                        end_cond,
+                        self.context.f64_type().const_float(0.0),
+                        "loopcond",
+                    );
+                    let after_bb = self.context.append_basic_block(parent, "afterloop");
+
+                    self.builder
+                        .build_conditional_branch(end_cond, loop_bb, after_bb);
+                    self.builder.position_at_end(after_bb);
+
+                    self.variables.remove(var_name);
+
+                    if let Some(val) = old_val {
+                        self.variables.insert(var_name.to_owned(), val);
+                    }
+
+                    Ok(self.context.f64_type().const_float(0.0))
+                }
+            }
+        */
     }
 
     /// Compiles the specified `Prototype` into an extern LLVM `FunctionValue`.
@@ -717,9 +846,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             self.compile_stmt(stmt)?;
         }
         let entry = self.fn_value().get_last_basic_block().unwrap();
-        if entry.get_last_instruction().map(|i| i.get_opcode())
-            != Some(inkwell::values::InstructionOpcode::Return)
-        {
+        if entry.get_terminator().is_none() {
             if self.function.header.0.var.as_str() == "main" {
                 self.builder.position_at_end(entry);
                 self.builder
@@ -737,11 +864,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
             Ok(function)
         } else {
+            function.print_to_stderr();
             unsafe {
                 function.delete();
             }
 
-            Err(TonyError::new("Invalid generated function."))
+            Err(TonyError::new("Invalid generated function.").set_llvm_verify_kind())
         }
     }
 
