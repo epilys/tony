@@ -149,7 +149,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn compile_expr(&self, expr: &Span<Expr>) -> Result<BasicValueEnum<'ctx>, TonyError> {
         match expr.into_inner() {
             Expr::Atom(Atom::Call(Call(ident_span, arg_spans))) => {
-                return match self.get_function(ident_span.as_str()) {
+                match self.get_function(ident_span.as_str()) {
                     Some(fun) => {
                         let mut compiled_args = Vec::with_capacity(arg_spans.len());
 
@@ -184,8 +184,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         format!("Undefined function, found {:?}", ident_span.into_inner()),
                         ident_span.span(),
                     )
-                    .set_typecheck_kind()),
-                };
+                    .set_symbol_table_kind()),
+                }
             }
             Expr::Atom(Atom::Id(id_span)) => {
                 let name = &id_span.into_inner().0.to_string();
@@ -194,10 +194,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         format!("Undefined variable, found {:?}", id_span.into_inner()),
                         id_span.span(),
                     )
-                    .set_typecheck_kind()
+                    .set_symbol_table_kind()
                 })?;
-                //TODO typecheck
-                return Ok(self.builder.build_load(*var, name.as_str()));
+                Ok(self.builder.build_load(*var, name.as_str()))
             }
             Expr::Atom(Atom::StringLiteral(string_literal)) => {
                 let global = unsafe {
@@ -205,73 +204,65 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         .build_global_string(string_literal.0.as_str(), string_literal.0.as_str())
                 };
                 let zero = self.context.i32_type().const_zero();
-                return Ok(unsafe {
+                Ok(unsafe {
                     self.builder
                         .build_gep(global.as_pointer_value(), &[zero, zero], "litptr_")
                         .as_basic_value_enum()
-                });
+                })
             }
             Expr::Atom(Atom::AtomIndex(_, _)) => todo!(),
-            Expr::IntConst(IntConst(v, _)) => {
-                return Ok(self
-                    .context
-                    .i64_type()
-                    .const_int(*v as u64, false)
-                    .as_basic_value_enum());
-            }
-            Expr::CharConst(CharConst(v)) => {
-                return Ok(self
-                    .context
-                    .i8_type()
-                    .const_int(*v as u32 as u64, false)
-                    .as_basic_value_enum());
-            }
+            Expr::IntConst(IntConst(v, _)) => Ok(self
+                .context
+                .i64_type()
+                .const_int(*v as u64, false)
+                .as_basic_value_enum()),
+            Expr::CharConst(CharConst(v)) => Ok(self
+                .context
+                .i8_type()
+                .const_int(*v as u32 as u64, false)
+                .as_basic_value_enum()),
             Expr::True | Expr::False | Expr::Not(_) | Expr::And(_, _) | Expr::Or(_, _) => {
-                return Ok(self.compile_bool_expr(expr)?.as_basic_value_enum());
+                Ok(self.compile_bool_expr(expr)?.as_basic_value_enum())
             }
-            Expr::Minus(_expr_span) => {}
+            Expr::Minus(expr_span) => {
+                let val = self.compile_expr(expr_span)?.into_int_value();
+                Ok(self
+                    .builder
+                    .build_int_neg(val, "tmpneg")
+                    .as_basic_value_enum())
+            }
             Expr::Op(_, Operator::Equals, _)
             | Expr::Op(_, Operator::NotEquals, _)
             | Expr::Op(_, Operator::Less, _)
             | Expr::Op(_, Operator::Greater, _)
             | Expr::Op(_, Operator::LessOrEqual, _)
             | Expr::Op(_, Operator::GreaterOrEqual, _) => {
-                return Ok(self.compile_bool_expr(expr)?.as_basic_value_enum());
+                Ok(self.compile_bool_expr(expr)?.as_basic_value_enum())
             }
             Expr::Op(left, op, right) => {
                 let lhs = self.compile_expr(left)?.into_int_value();
                 let rhs = self.compile_expr(right)?.into_int_value();
                 match op {
-                    Operator::Div => {
-                        return Ok(self
-                            .builder
-                            .build_int_signed_div(lhs, rhs, "tmp_sub")
-                            .as_basic_value_enum());
-                    }
-                    Operator::Mod => {
-                        return Ok(self
-                            .builder
-                            .build_int_signed_rem(lhs, rhs, "tmp_sub")
-                            .as_basic_value_enum());
-                    }
-                    Operator::Times => {
-                        return Ok(self
-                            .builder
-                            .build_int_mul(lhs, rhs, "tmp_sub")
-                            .as_basic_value_enum());
-                    }
-                    Operator::Plus => {
-                        return Ok(self
-                            .builder
-                            .build_int_add(lhs, rhs, "tmp_sub")
-                            .as_basic_value_enum());
-                    }
-                    Operator::Minus => {
-                        return Ok(self
-                            .builder
-                            .build_int_sub(lhs, rhs, "tmp_sub")
-                            .as_basic_value_enum());
-                    }
+                    Operator::Div => Ok(self
+                        .builder
+                        .build_int_signed_div(lhs, rhs, "tmp_sub")
+                        .as_basic_value_enum()),
+                    Operator::Mod => Ok(self
+                        .builder
+                        .build_int_signed_rem(lhs, rhs, "tmp_sub")
+                        .as_basic_value_enum()),
+                    Operator::Times => Ok(self
+                        .builder
+                        .build_int_mul(lhs, rhs, "tmp_sub")
+                        .as_basic_value_enum()),
+                    Operator::Plus => Ok(self
+                        .builder
+                        .build_int_add(lhs, rhs, "tmp_sub")
+                        .as_basic_value_enum()),
+                    Operator::Minus => Ok(self
+                        .builder
+                        .build_int_sub(lhs, rhs, "tmp_sub")
+                        .as_basic_value_enum()),
                     Operator::Equals
                     | Operator::NotEquals
                     | Operator::Less
@@ -280,10 +271,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     | Operator::GreaterOrEqual => unsafe { std::hint::unreachable_unchecked() },
                 }
             }
-            Expr::New(_type_span, _expr_span) => {}
-            Expr::Nil => {}
+            Expr::New(_type_span, _expr_span) => todo!(),
+            Expr::Nil => todo!(),
         }
-        todo!()
     }
 
     fn compile_simple(&mut self, simple: &Span<Simple>) -> Result<(), TonyError> {
@@ -358,17 +348,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 let then_bb = self.context.append_basic_block(parent, "then");
                 let else_bb = self.context.append_basic_block(parent, "else");
-                let cont_bb = self.context.append_basic_block(parent, "ifcont");
+                let mut cont_bb = None; //self.context.append_basic_block(parent, "ifcont");
 
                 self.builder
                     .build_conditional_branch(cond, then_bb, else_bb);
 
+                let current_block = self.builder.get_insert_block().unwrap();
+                if current_block.get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(then_bb);
+                }
                 self.builder.position_at_end(then_bb);
                 for stmt in body_stmt_spans.iter() {
                     self.compile_stmt(stmt.into_inner())?;
                 }
-                if then_bb.get_terminator().is_none() {
-                    self.builder.build_unconditional_branch(cont_bb);
+                let current_block = self.builder.get_insert_block().unwrap();
+                if current_block.get_terminator().is_none() {
+                    if cont_bb.is_none() {
+                        cont_bb = Some(self.context.append_basic_block(parent, "ifcont"));
+                    }
+                    self.builder.build_unconditional_branch(cont_bb.unwrap());
                 }
                 //let then_bb = self.builder.get_insert_block().unwrap();
 
@@ -377,11 +375,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     self.compile_stmt(stmt.into_inner())?;
                 }
                 if else_bb.get_terminator().is_none() {
-                    self.builder.build_unconditional_branch(cont_bb);
+                    if cont_bb.is_none() {
+                        cont_bb = Some(self.context.append_basic_block(parent, "ifcont"));
+                    }
+                    self.builder.build_unconditional_branch(cont_bb.unwrap());
                 }
                 //let else_bb = self.builder.get_insert_block().unwrap();
 
-                self.builder.position_at_end(cont_bb);
+                if cont_bb.is_some() {
+                    self.builder.position_at_end(cont_bb.unwrap());
+                }
                 //let phi = self.builder.build_phi(self.context.i64_type(), "iftmp");
 
                 //let zero_const = self.context.i64_type().const_zero();
@@ -435,7 +438,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 for stmt in body_stmt_spans.iter() {
                     self.compile_stmt(stmt.into_inner())?;
                 }
-                if loop_bb.get_terminator().is_none() {
+                let current_block = self.builder.get_insert_block().unwrap();
+                if current_block.get_terminator().is_none() {
                     self.builder.build_unconditional_branch(eval_bb);
                 }
                 self.builder.position_at_end(eval_bb);

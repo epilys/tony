@@ -178,13 +178,8 @@ Atom: ast::Atom = {
 }
 
 Expr: Span<ast::Expr> = {
-   "+" <e:FExpr> => e,
-  <l:@L> "-" <e:FExpr> <r:@R> => span![ast::Expr::Minus(Box::new(e));l,r],
   <l:@L> <e1:Expr> "+" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Plus, Box::new(e2));l,r],
   <l:@L> <e1:Expr> "-" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Minus, Box::new(e2));l,r],
-  <l:@L> <e1:Expr> "*" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Times, Box::new(e2));l,r],
-  <l:@L> <e1:Expr> "mod" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Mod, Box::new(e2));l,r],
-  <l:@L> <e1:Expr> "/" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Div, Box::new(e2));l,r],
   <e: FExpr> => e,
 }
 
@@ -203,6 +198,15 @@ FExpr: Span<ast::Expr> = {
 }
 
 TExpr: Span<ast::Expr> = {
+   "+" <e:DExpr> => e,
+  <l:@L> "-" <e:DExpr> <r:@R> => span![ast::Expr::Minus(Box::new(e));l,r],
+  <l:@L> <e1:TExpr> "*" <e2:DExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Times, Box::new(e2));l,r],
+  <l:@L> <e1:TExpr> "mod" <e2:DExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Mod, Box::new(e2));l,r],
+  <l:@L> <e1:TExpr> "/" <e2:DExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Div, Box::new(e2));l,r],
+   <e:DExpr> => e,
+}
+
+DExpr: Span<ast::Expr> = {
   <l:@L> <a:Atom> <r:@R> => span![ast::Expr::Atom(a); l,r],
   <l:@L> "true" <r:@R> => span![ast::Expr::True; l,r],
   <l:@L> "false" <r:@R> => span![ast::Expr::False; l,r],

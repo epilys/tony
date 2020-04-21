@@ -1,4 +1,5 @@
 use crate::ast;
+use crate::span;
 use crate::TonyError;
 use std::collections::HashMap;
 use std::fmt;
@@ -51,8 +52,7 @@ pub enum Symbol {
         scope_uuid: ScopeUuid,
     },
     BuiltinFunction {
-        ident: ast::Identifier,
-        tony_type: ast::TonyType,
+        def: ast::FuncDef,
     },
 }
 
@@ -61,7 +61,7 @@ impl std::hash::Hash for Symbol {
         match self {
             Symbol::Variable { ref uuid, .. } => uuid.hash(state),
             Symbol::Function { ref uuid, .. } => uuid.hash(state),
-            Symbol::BuiltinFunction { ref ident, .. } => ident.hash(state),
+            Symbol::BuiltinFunction { ref def, .. } => def.ident().hash(state),
         }
     }
 }
@@ -75,6 +75,17 @@ pub struct ProgramEnvironment {
 macro_rules! this_scope {
     ($symbol_tables:ident[$scope_key:expr]) => {
         $symbol_tables.get_mut($scope_key).unwrap()
+    };
+}
+macro_rules! expected_type {
+    ($t:expr, $expected:expr, $expr_span:expr) => {
+        if $t != $expected {
+            return Err(TonyError::with_span(
+                format!("Expected type {:?}, found {:?}", $expected, $t),
+                $expr_span.span(),
+            )
+            .set_typecheck_kind());
+        }
     };
 }
 impl ProgramEnvironment {
@@ -91,38 +102,16 @@ impl ProgramEnvironment {
             symbol_tables,
             global_scope_uuid,
         };
-        ret.insert_builtin_func("puti");
-        ret.insert_builtin_func("putb");
-        ret.insert_builtin_func("putc");
-        ret.insert_builtin_func("puts");
-        ret.insert_builtin_func("geti");
-        ret.insert_builtin_func("getb");
-        ret.insert_builtin_func("getc");
-        ret.insert_builtin_func("gets");
-        ret.insert_builtin_func("abs");
-        ret.insert_builtin_func("ord");
-        ret.insert_builtin_func("chr");
-        ret.insert_builtin_func("strlen");
-        ret.insert_builtin_func("strcmp");
-        ret.insert_builtin_func("strcpy");
-        ret.insert_builtin_func("strcat");
-        ret.insert_builtin_func("readInteger");
-        ret.insert_builtin_func("nil");
-        ret.insert_builtin_func("nil?");
-        ret.insert_builtin_func("head");
-        ret.insert_builtin_func("tail");
-        ret.insert_builtin_func("cons");
+        for value in crate::builtins::builtins_to_funcdef() {
+            ret.insert_builtin_func(value);
+        }
 
         ret
     }
 
-    #[inline(always)]
-    fn insert_builtin_func(&mut self, value: &'static str) {
-        let ident = ast::Identifier(value.to_string());
-        let symbol = Symbol::BuiltinFunction {
-            ident: ident.clone(),
-            tony_type: ast::TonyType::Unit,
-        };
+    fn insert_builtin_func(&mut self, value: ast::FuncDef) {
+        let ident = value.ident().clone();
+        let symbol = Symbol::BuiltinFunction { def: value };
         let len = self.symbol_tables[&self.global_scope_uuid].symbols.len();
         self.global_scope_mut()
             .symbols_index
@@ -246,10 +235,11 @@ impl ProgramEnvironment {
             this_scope!(symbol_tables[scope_key]).symbols.push(symbol);
         }
         {
-            for stmt in value.body.iter().map(|span| span.into_inner()) {
+            for stmt in value.body.iter() {
                 //println!("examining stmt {:#?} ", stmt);
                 // Check that all statements refer to in-scope symbols.
-                self.contains_stmt_symbol(Some(&new_scope_uuid), stmt)?;
+                self.contains_stmt_symbol(Some(&new_scope_uuid), stmt.into_inner())?;
+                self.type_check(Some(&new_scope_uuid), stmt, &value)?;
             }
         }
         Ok(())
@@ -337,7 +327,7 @@ impl ProgramEnvironment {
         scope_uuid: Option<&ScopeUuid>,
         atom: &ast::Atom,
     ) -> Result<(), TonyError> {
-        let ret = match atom {
+        match atom {
             ast::Atom::Id(ident_span) => self.contains_var_symbol(scope_uuid, ident_span),
             ast::Atom::StringLiteral(_) => Ok(()),
             ast::Atom::AtomIndex(_atom, _expr) => todo!(),
@@ -350,8 +340,7 @@ impl ProgramEnvironment {
                     .map(|_| ())?;
                 Ok(())
             }
-        };
-        ret
+        }
     }
 
     fn contains_func_symbol<'global>(
@@ -373,7 +362,7 @@ impl ProgramEnvironment {
                 .ok_or_else(|| {
                     TonyError::with_span(
                         format!("func ident {:?} not found in scope", ident.into_inner()),
-                        (ident.left, ident.right),
+                        ident.span(),
                     )
                     .set_symbol_table_kind()
                 });
@@ -402,7 +391,7 @@ impl ProgramEnvironment {
                 .ok_or_else(|| {
                     TonyError::with_span(
                         format!("var ident {:?} not found in scope", ident.into_inner()),
-                        (ident.left, ident.right),
+                        ident.span(),
                     )
                     .set_symbol_table_kind()
                 });
@@ -418,7 +407,7 @@ impl ProgramEnvironment {
         scope_uuid: Option<&ScopeUuid>,
         expr: &ast::Expr,
     ) -> Result<(), TonyError> {
-        let ret = match expr {
+        match expr {
             ast::Expr::Atom(atom) => self.contains_atom_symbol(scope_uuid, atom),
             ast::Expr::IntConst(_)
             | ast::Expr::CharConst(_)
@@ -448,8 +437,280 @@ impl ProgramEnvironment {
 
                 self.contains_expr_symbol(scope_uuid, expr_span.into_inner())
             }
-        };
-        ret
+        }
+    }
+
+    fn type_check(
+        &self,
+        scope_uuid: Option<&ScopeUuid>,
+        stmt: &ast::Span<ast::Stmt>,
+        func_def: &ast::FuncDef,
+    ) -> Result<(), TonyError> {
+        match stmt.into_inner() {
+            ast::Stmt::Simple(simple) => {
+                self.simple_type_check(scope_uuid, &simple, func_def)?;
+            }
+            ast::Stmt::Exit => {
+                if func_def.return_type() != &ast::TonyType::Unit {
+                    return Err(TonyError::with_span(
+                        format!(
+                            "Function {} can't use 'exit'; its return type is {:?} ",
+                            func_def.ident().0,
+                            func_def.return_type()
+                        ),
+                        func_def.header.0.var.id.span(),
+                    )
+                    .set_typecheck_kind());
+                }
+            }
+            ast::Stmt::Return(expr_span) => {
+                if func_def.return_type()
+                    != &self.expr_type_check(scope_uuid, &expr_span, func_def)?
+                {
+                    return Err(TonyError::with_span(
+                        format!(
+                            "Function {} has a {:?} return type",
+                            func_def.ident().0,
+                            func_def.return_type()
+                        ),
+                        func_def.header.0.var.id.span(),
+                    )
+                    .set_typecheck_kind());
+                }
+            }
+            ast::Stmt::Control(ast::StmtType::If {
+                condition: condition_expr_span,
+                body: body_stmt_spans,
+                _else: _else_stmt_spans,
+            }) => {
+                if self.expr_type_check(scope_uuid, &condition_expr_span, func_def)?
+                    != ast::TonyType::Bool
+                {
+                    return Err(TonyError::with_span(
+                        format!("If condition must be a bool expression"),
+                        func_def.header.0.var.id.span(),
+                    )
+                    .set_typecheck_kind());
+                }
+                for stmt in body_stmt_spans {
+                    self.type_check(scope_uuid, stmt, func_def)?;
+                }
+                for stmt in _else_stmt_spans {
+                    self.type_check(scope_uuid, stmt, func_def)?;
+                }
+            }
+            ast::Stmt::Control(ast::StmtType::For {
+                init,
+                condition: condition_expr_span,
+                eval,
+                body: body_stmt_spans,
+            }) => {
+                for simple in init {
+                    self.simple_type_check(scope_uuid, simple, func_def)?;
+                }
+                if self.expr_type_check(scope_uuid, &condition_expr_span, func_def)?
+                    != ast::TonyType::Bool
+                {
+                    return Err(TonyError::with_span(
+                        format!("For condition must be a bool expression"),
+                        func_def.header.0.var.id.span(),
+                    )
+                    .set_typecheck_kind());
+                }
+                for simple in eval {
+                    self.simple_type_check(scope_uuid, simple, func_def)?;
+                }
+                for stmt in body_stmt_spans {
+                    self.type_check(scope_uuid, stmt, func_def)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn atom_type_check(
+        &self,
+        scope_uuid: Option<&ScopeUuid>,
+        atom: &ast::Atom,
+        func_def: &ast::FuncDef,
+    ) -> Result<ast::TonyType, TonyError> {
+        match atom {
+            ast::Atom::Id(ident_span) => Ok(self
+                .get_vardef(scope_uuid, ident_span.into_inner())
+                .unwrap()
+                .tony_type
+                .into_inner()
+                .clone()),
+            ast::Atom::StringLiteral(_) => Ok(ast::TonyType::Array(Box::new(
+                span![ast::TonyType::Char; 0,0],
+            ))),
+            ast::Atom::AtomIndex(_atom, _expr) => todo!(),
+            ast::Atom::Call(ast::Call(ident_span, exprs)) => {
+                let def = self
+                    .get_funcdef(scope_uuid, ident_span.into_inner())
+                    .unwrap();
+                if def.header.1.len() != exprs.len() {
+                    return Err(TonyError::with_span(
+                        format!(
+                            "Func {} expects {} arguments, found {}.",
+                            &ident_span.into_inner().0,
+                            def.header.1.len(),
+                            exprs.len()
+                        ),
+                        ident_span.span(),
+                    )
+                    .set_symbol_table_kind());
+                }
+                for (i, formal) in def.header.1.iter().enumerate() {
+                    let expr_type = self.expr_type_check(scope_uuid, &exprs[i], func_def)?;
+                    expected_type!(expr_type, *formal.var.tony_type.into_inner(), &exprs[i]);
+                }
+                Ok(def.return_type().clone())
+            }
+        }
+    }
+    fn expr_type_check(
+        &self,
+        scope_uuid: Option<&ScopeUuid>,
+        expr: &ast::Expr,
+        func_def: &ast::FuncDef,
+    ) -> Result<ast::TonyType, TonyError> {
+        match expr {
+            ast::Expr::Atom(atom) => self.atom_type_check(scope_uuid, atom, func_def),
+            ast::Expr::IntConst(_) => Ok(ast::TonyType::Int),
+            ast::Expr::CharConst(_) => Ok(ast::TonyType::Char),
+            ast::Expr::True | ast::Expr::False => Ok(ast::TonyType::Bool),
+            ast::Expr::Nil => todo!(),
+            ast::Expr::Not(expr_span) => {
+                let t = self.expr_type_check(scope_uuid, expr_span, func_def)?;
+                expected_type!(t, ast::TonyType::Bool, expr_span);
+                Ok(ast::TonyType::Bool)
+            }
+            ast::Expr::And(expr_span_1, expr_span_2) => {
+                let t_1 = self.expr_type_check(scope_uuid, expr_span_1, func_def)?;
+                expected_type!(t_1, ast::TonyType::Bool, expr_span_1);
+                let t_2 = self.expr_type_check(scope_uuid, expr_span_2, func_def)?;
+                expected_type!(t_2, ast::TonyType::Bool, expr_span_2);
+                Ok(ast::TonyType::Bool)
+            }
+            ast::Expr::Or(expr_span_1, expr_span_2) => {
+                let t_1 = self.expr_type_check(scope_uuid, expr_span_1, func_def)?;
+                expected_type!(t_1, ast::TonyType::Bool, expr_span_1);
+                let t_2 = self.expr_type_check(scope_uuid, expr_span_2, func_def)?;
+                expected_type!(t_2, ast::TonyType::Bool, expr_span_2);
+                Ok(ast::TonyType::Bool)
+            }
+            ast::Expr::Minus(expr_span) => {
+                let t = self.expr_type_check(scope_uuid, expr_span, func_def)?;
+                expected_type!(t, ast::TonyType::Int, expr_span);
+                Ok(t)
+            }
+            ast::Expr::Op(left, ast::Operator::Equals, right)
+            | ast::Expr::Op(left, ast::Operator::NotEquals, right)
+            | ast::Expr::Op(left, ast::Operator::Less, right)
+            | ast::Expr::Op(left, ast::Operator::Greater, right)
+            | ast::Expr::Op(left, ast::Operator::LessOrEqual, right)
+            | ast::Expr::Op(left, ast::Operator::GreaterOrEqual, right) => {
+                let t_1 = self.expr_type_check(scope_uuid, left, func_def)?;
+                expected_type!(t_1, ast::TonyType::Int, left);
+                let t_2 = self.expr_type_check(scope_uuid, right, func_def)?;
+                expected_type!(t_2, ast::TonyType::Int, right);
+                Ok(ast::TonyType::Bool)
+            }
+            ast::Expr::Op(left, _, right) => {
+                let t_1 = self.expr_type_check(scope_uuid, left, func_def)?;
+                expected_type!(t_1, ast::TonyType::Int, left);
+                let t_2 = self.expr_type_check(scope_uuid, right, func_def)?;
+                expected_type!(t_2, ast::TonyType::Int, right);
+                Ok(ast::TonyType::Int)
+            }
+            ast::Expr::New(_type_span, _expr_span) => {
+                // TODO: check type
+                todo!()
+            }
+        }
+    }
+
+    fn simple_type_check(
+        &self,
+        scope_uuid: Option<&ScopeUuid>,
+        simple: &ast::Span<ast::Simple>,
+        func_def: &ast::FuncDef,
+    ) -> Result<ast::TonyType, TonyError> {
+        match simple.into_inner() {
+            ast::Simple::Skip => Ok(ast::TonyType::Unit),
+            ast::Simple::Call(ast::Call(ident_span, exprs)) => {
+                let def = self
+                    .get_funcdef(scope_uuid, ident_span.into_inner())
+                    .unwrap();
+                if def.header.1.len() != exprs.len() {
+                    return Err(TonyError::with_span(
+                        format!(
+                            "Func {} expects {} arguments, found {}.",
+                            &ident_span.into_inner().0,
+                            def.header.1.len(),
+                            exprs.len()
+                        ),
+                        ident_span.span(),
+                    )
+                    .set_symbol_table_kind());
+                }
+                for (i, formal) in def.header.1.iter().enumerate() {
+                    let expr_type = self.expr_type_check(scope_uuid, &exprs[i], func_def)?;
+                    expected_type!(expr_type, *formal.var.tony_type.into_inner(), &exprs[i]);
+                }
+                Ok(def.return_type().clone())
+            }
+            ast::Simple::Assignment(atom, expr_span) => {
+                let atom_type = self.atom_type_check(scope_uuid, atom, func_def)?;
+                let t = self.expr_type_check(scope_uuid, expr_span, func_def)?;
+                expected_type!(t, atom_type, expr_span);
+                Ok(ast::TonyType::Unit)
+            }
+        }
+    }
+
+    fn get_funcdef<'global>(
+        &'global self,
+        mut scope_uuid: Option<&'global ScopeUuid>,
+        ident: &ast::Identifier,
+    ) -> Option<&ast::FuncDef> {
+        loop {
+            let scope_key = scope_uuid.unwrap_or(&self.global_scope_uuid);
+            let table = &self.symbol_tables[scope_key];
+            if let Some(&idx) = table.ident_index.get(ident) {
+                match &table.symbols[idx] {
+                    Symbol::Function { ref def, .. } | Symbol::BuiltinFunction { ref def, .. } => {
+                        return Some(def);
+                    }
+                    _ => {}
+                }
+            }
+            if scope_uuid.is_none() {
+                return None;
+            }
+            scope_uuid = self.symbol_tables[scope_key].parent_scope.as_ref();
+        }
+    }
+
+    fn get_vardef<'global>(
+        &'global self,
+        mut scope_uuid: Option<&'global ScopeUuid>,
+        ident: &ast::Identifier,
+    ) -> Option<&ast::VarDef> {
+        loop {
+            let scope_key = scope_uuid.unwrap_or(&self.global_scope_uuid);
+            let table = &self.symbol_tables[scope_key];
+            if let Some(&idx) = table.ident_index.get(ident) {
+                if let Symbol::Variable { ref def, .. } = &table.symbols[idx] {
+                    return Some(def);
+                }
+            }
+            if scope_uuid.is_none() {
+                return None;
+            }
+            scope_uuid = self.symbol_tables[scope_key].parent_scope.as_ref();
+        }
     }
 }
 

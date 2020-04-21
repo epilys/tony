@@ -198,7 +198,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
 
     if conf.display_lexer_output {
         println!(
-            "-> Attempting to parse lexed input: \n{:?}\n",
+            "-> Lexer output: \n{:?}\n",
             Lexer::new(input.as_str()).collect::<Vec<LexResult>>()
         );
     }
@@ -260,6 +260,10 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
             return Err(-1);
         }
     };
+    if conf.display_parser_output {
+        println!("-> Parser output: \n{:#?}\n", &ast);
+    }
+
     if !ast
         .0
         .iter()

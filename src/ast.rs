@@ -30,12 +30,19 @@ impl std::cmp::PartialEq for IntConst {
 }
 impl std::cmp::Eq for IntConst {}
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct Span<T: std::fmt::Debug + Clone + PartialEq + Eq> {
     pub left: usize,
     pub right: usize,
     pub inner: T,
 }
+
+impl<T: std::fmt::Debug + Clone + PartialEq + Eq> std::cmp::PartialEq for Span<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+impl<T: std::fmt::Debug + Clone + PartialEq + Eq> std::cmp::Eq for Span<T> {}
 
 impl<T: std::fmt::Debug + Clone + PartialEq + Eq> fmt::Debug for Span<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -76,6 +83,17 @@ pub struct FuncDef {
     pub declarations: Vec<Span<Decl>>,
     pub body: Vec<Span<Stmt>>,
     pub is_extern: bool,
+}
+
+impl FuncDef {
+    #[inline(always)]
+    pub fn return_type(&self) -> &TonyType {
+        &self.header.0.var.tony_type
+    }
+    #[inline(always)]
+    pub fn ident(&self) -> &Identifier {
+        self.header.0.var.id.into_inner()
+    }
 }
 
 impl fmt::Display for FuncDef {
