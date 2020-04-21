@@ -7,5 +7,9 @@ def int fib(int x):
 end
 
 def main():
-  fib(10)
+  int i
+  for i := 1; i < 20; i := i + 1:
+    puti(fib(i))
+    putc('\n')
+  end
 end

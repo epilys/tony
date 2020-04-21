@@ -15,8 +15,8 @@ def main ():
 
   int limit, number, counter
 
-  puts(”Limit: ”)
-  limit := readInteger()
+  %puts(”Limit: ”)
+  limit := 1000
   puts(”Primes:\n”)
   counter := 0
   if limit >= 2: counter := counter + 1 puti(2) puts(”\n”) end

@@ -12,7 +12,7 @@ def solve():
   end
   int NumberOfRings
   puts("Rings: ")
-  NumberOfRings := readInteger()
+  NumberOfRings := 5 % readInteger()
   hanoi(NumberOfRings, "left", "right", "middle")
 end
 

@@ -1,4 +1,4 @@
-def solve():
+def main():
   def hanoi (int rings; char[] source, target, auxiliary):
     def move (char[] source, target):
       % comment
