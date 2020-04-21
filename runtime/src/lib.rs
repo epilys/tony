@@ -49,7 +49,15 @@ macro_rules! print_flush {
 /// ```
 #[no_mangle]
 pub extern "C" fn puti(x: i64) -> () {
-    print_flush!("{}", x);
+    std::io::stdout()
+        .flush()
+        .expect("Could not flush to standard output.");
+    let stdout = std::io::stdout();
+    let mut lock = stdout.lock();
+    write!(lock, "{}", x).unwrap();
+    std::io::stdout()
+        .flush()
+        .expect("Could not flush to standard output.");
 }
 
 #[no_mangle]
@@ -59,21 +67,31 @@ pub extern "C" fn putb(b: bool) -> () {
 
 #[no_mangle]
 pub extern "C" fn putc(c: std::os::raw::c_int) -> () {
-    unsafe {
-        libc::putchar(c);
-    };
+    std::io::stdout()
+        .flush()
+        .expect("Could not flush to standard output.");
+    let stdout = std::io::stdout();
+    let mut lock = stdout.lock();
+    lock.write_all(&c.to_ne_bytes()).unwrap();
+    std::io::stdout()
+        .flush()
+        .expect("Could not flush to standard output.");
 }
 
 #[no_mangle]
 pub extern "C" fn puts(c: *const std::os::raw::c_char) -> () {
+    std::io::stdout()
+        .flush()
+        .expect("Could not flush to standard output.");
+    let stdout = std::io::stdout();
+    let mut lock = stdout.lock();
     unsafe {
-        libc::printf(
-            std::ffi::CString::new("%s")
-                .expect("CString::new failed")
-                .as_ptr(),
-            c,
-        );
+        lock.write_all(std::ffi::CStr::from_ptr(c).to_bytes())
+            .unwrap();
     };
+    std::io::stdout()
+        .flush()
+        .expect("Could not flush to standard output.");
 }
 
 /// Οι συναρτήσεις αυτές χρησιμοποιούνται για την εκτύπωση τιμών που ανήκουν στους βασικούς τύπους
@@ -129,22 +147,31 @@ pub extern "C" fn chr(i: i64) -> char {
 /// συναρτήσεων της γλώσσας C.
 
 #[no_mangle]
-pub extern "C" fn strlen(c: *const std::os::raw::c_char) -> i64 {
+pub extern "C" fn tony_strlen(c: *const std::os::raw::c_char) -> i64 {
     (unsafe { libc::strlen(c) }) as i64
 }
 
 #[no_mangle]
-pub extern "C" fn strcmp(s1: *const std::os::raw::c_char, s2: *const std::os::raw::c_char) -> i64 {
+pub extern "C" fn tony_strcmp(
+    s1: *const std::os::raw::c_char,
+    s2: *const std::os::raw::c_char,
+) -> i64 {
     (unsafe { libc::strcmp(s1, s2) }) as i64
 }
 
 #[no_mangle]
-pub extern "C" fn strcpy(trg: *mut std::os::raw::c_char, src: *const std::os::raw::c_char) -> () {
+pub extern "C" fn tony_strcpy(
+    trg: *mut std::os::raw::c_char,
+    src: *const std::os::raw::c_char,
+) -> () {
     unsafe { libc::strcpy(trg, src) };
 }
 
 #[no_mangle]
-pub extern "C" fn strcat(trg: *mut std::os::raw::c_char, src: *const std::os::raw::c_char) -> () {
+pub extern "C" fn tony_strcat(
+    trg: *mut std::os::raw::c_char,
+    src: *const std::os::raw::c_char,
+) -> () {
     unsafe { libc::strcat(trg, src) };
 }
 

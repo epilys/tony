@@ -389,7 +389,14 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
         "linking.. {}",
         String::from_utf8_lossy(
             &std::process::Command::new("gcc")
-                .args(&["output.o", "target/debug/libruntime.so", "-o", "main"])
+                .args(&[
+                    "output.o",
+                    "target/debug/libruntime.a",
+                    "-lpthread",
+                    "-ldl",
+                    "-o",
+                    "main"
+                ])
                 .output()
                 .unwrap()
                 .stderr
