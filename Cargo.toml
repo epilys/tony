@@ -5,6 +5,13 @@ authors = ["Manos Pitsidianakis <el13635@mail.ntua.gr>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "tony_frontend"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tony"
+path = "src/main.rs"
 
 
 [build-dependencies] # <-- We added this and everything after!

@@ -520,7 +520,7 @@ impl<'a> Iterator for Lexer<'a> {
     /// On EOF or failure, `None` will be returned.
     fn next(&mut self) -> Option<Self::Item> {
         match self.lex() {
-            Ok((_, EOF, _)) => None,
+            Ok((_, Token::EOF, _)) => None,
             Ok((_, Token::Comment, _)) => self.next(),
             ok @ Ok(_) => Some(ok),
             err @ Err(_) => Some(err),

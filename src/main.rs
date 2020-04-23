@@ -8,34 +8,11 @@
 //! Both the `Parser` and the `Compiler` may fail, in which case they would return
 //! an error represented by `Result<T, TonyError>`, for easier error reporting.
 
-extern crate inkwell;
-use std::collections::HashMap;
+extern crate tony_frontend;
 use std::io::{self, Read};
-use std::iter::Peekable;
-use std::ops::DerefMut;
-use std::str::Chars;
-
-use crate::Token::*;
-#[macro_use]
-extern crate lalrpop_util;
-
-mod error;
-pub use error::*;
-
-mod ast;
-
-mod lexer;
-use lexer::*;
-
-mod parser;
-
-mod symbols;
-
-mod builtins;
-
-mod llvm;
-use llvm::*;
-
+use tony_frontend::lexer::*;
+use tony_frontend::TonyError;
+use tony_frontend::{llvm::*, parser, symbols};
 //const ANONYMOUS_FUNCTION_NAME: &str = "anonymous";
 
 struct RunConfig {
@@ -303,7 +280,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
 
     fpm.initialize();
     // make module
-    for funcdef in crate::builtins::builtins_to_funcdef() {
+    for funcdef in tony_frontend::builtins::builtins_to_funcdef() {
         match Compiler::compile(&context, &builder, &fpm, &module, &funcdef) {
             Ok(function) => {
                 if conf.display_compiler_output {
