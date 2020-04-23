@@ -182,8 +182,45 @@ impl<'a> Lexer<'a> {
 
                 Ok((start, Token::Comment, pos))
             }
-            '<' if follows == Some('*') => todo!(),
-            '*' if follows == Some('>') => todo!(),
+            '<' if follows == Some('*') => {
+                // Comment start.
+                let mut nested_level = 1;
+                loop {
+                    let next = chars.next();
+                    let peek = chars.peek();
+                    let ch = match (next, peek) {
+                        (Some(ch @ '<'), Some(&'*')) => {
+                            nested_level += 1;
+                            ch
+                        }
+                        (Some('*'), Some(&'>')) if nested_level == 1 => {
+                            advance_pos!('*');
+                            let _ = chars.next();
+                            advance_pos!('>');
+                            break;
+                        }
+                        (Some(ch @ '*'), Some(&'>')) => {
+                            nested_level -= 1;
+                            ch
+                        }
+                        (Some(ch), _) => ch,
+                        (None, _) => {
+                            return Err(TonyError::with_span(
+                                format!("Encountered EOF while parsing multiline comment",),
+                                (start, pos),
+                            ))
+                        }
+                    };
+                    advance_pos!(ch);
+
+                    if ch == '\n' {
+                        self.line += 1;
+                        self.col = 0;
+                    }
+                }
+
+                Ok((start, Token::Comment, pos))
+            }
             '*' => Ok((start, Token::Times, pos)),
             '<' if follows == Some('>') => {
                 chars.next();

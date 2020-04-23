@@ -1,0 +1,15 @@
+def main():
+  % comment
+  <* multiline comment
+
+
+  *>
+  <* multiline nested comment
+
+    <* avoid empty nest syndrome
+      <* __ *>
+      <* <* __ *> *>
+    *>
+
+  *>
+end
