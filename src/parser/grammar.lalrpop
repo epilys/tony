@@ -178,22 +178,22 @@ Atom: ast::Atom = {
 }
 
 Expr: Span<ast::Expr> = {
-  <l:@L> <e1:Expr> "+" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Plus, Box::new(e2));l,r],
-  <l:@L> <e1:Expr> "-" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Minus, Box::new(e2));l,r],
+  <l:@L> <e1:Expr> "=" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Equals, Box::new(e2)); l,r],
+  <l:@L> <e1:Expr> "<>" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::NotEquals, Box::new(e2)); l,r],
+  <l:@L> <e1:Expr> "<" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Less, Box::new(e2)); l,r],
+  <l:@L> <e1:Expr> ">" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Greater, Box::new(e2)); l,r],
+  <l:@L> <e1:Expr> "<=" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::LessOrEqual, Box::new(e2)); l,r],
+  <l:@L> <e1:Expr> ">=" <e2:FExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::GreaterOrEqual, Box::new(e2)); l,r],
+  <l:@L> "not" <e:FExpr> <r:@R> => span![ast::Expr::Not(Box::new(e)); l,r],
+  <l:@L> <e1: Expr> "and" <e2: FExpr> <r:@R> => span![ast::Expr::And(Box::new(e1), Box::new(e2)); l,r],
+  <l:@L> <e1: Expr> "or" <e2: FExpr> <r:@R> => span![ast::Expr::Or(Box::new(e1), Box::new(e2)); l,r],
+  <l:@L> <e1: Expr> <il:@L> "#" <ir:@R> <e2: FExpr> <r:@R> => span![ast::Expr::Atom(ast::Atom::Call(ast::Call(span![ast::Identifier("cons".to_string()); il,ir], vec![e1, e2]))); l,r],
   <e: FExpr> => e,
 }
 
 FExpr: Span<ast::Expr> = {
-  <l:@L> <e1:FExpr> "=" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Equals, Box::new(e2)); l,r],
-  <l:@L> <e1:FExpr> "<>" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::NotEquals, Box::new(e2)); l,r],
-  <l:@L> <e1:FExpr> "<" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Less, Box::new(e2)); l,r],
-  <l:@L> <e1:FExpr> ">" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Greater, Box::new(e2)); l,r],
-  <l:@L> <e1:FExpr> "<=" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::LessOrEqual, Box::new(e2)); l,r],
-  <l:@L> <e1:FExpr> ">=" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::GreaterOrEqual, Box::new(e2)); l,r],
-  <l:@L> "not" <e:TExpr> <r:@R> => span![ast::Expr::Not(Box::new(e)); l,r],
-  <l:@L> <e1: FExpr> "and" <e2: TExpr> <r:@R> => span![ast::Expr::And(Box::new(e1), Box::new(e2)); l,r],
-  <l:@L> <e1: FExpr> "or" <e2: TExpr> <r:@R> => span![ast::Expr::Or(Box::new(e1), Box::new(e2)); l,r],
-  <l:@L> <e1: FExpr> <il:@L> "#" <ir:@R> <e2: TExpr> <r:@R> => span![ast::Expr::Atom(ast::Atom::Call(ast::Call(span![ast::Identifier("cons".to_string()); il,ir], vec![e1, e2]))); l,r],
+  <l:@L> <e1:FExpr> "+" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Plus, Box::new(e2));l,r],
+  <l:@L> <e1:FExpr> "-" <e2:TExpr> <r:@R> => span![ast::Expr::Op(Box::new(e1), ast::Operator::Minus, Box::new(e2));l,r],
   <e: TExpr> => e,
 }
 
