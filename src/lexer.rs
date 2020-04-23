@@ -531,6 +531,12 @@ impl<'a> Lexer<'a> {
                         }
                     };
                     advance_pos!(chars.next().unwrap());
+                    if ch == '\0' {
+                        return Err(TonyError::with_index(
+                            format!("Encountered nul byte inside string literal",),
+                            (self.line, self.col),
+                        ));
+                    }
                     if !escape_next {
                         s.push(ch);
                     }

@@ -199,6 +199,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 Ok(self.builder.build_load(*var, name.as_str()))
             }
             Expr::Atom(Atom::StringLiteral(string_literal)) => {
+                /* build_global_string panics if string_literal contains nul bytes! */
                 let global = unsafe {
                     self.builder
                         .build_global_string(string_literal.0.as_str(), string_literal.0.as_str())
