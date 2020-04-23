@@ -874,7 +874,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 function.delete();
             }
 
-            Err(TonyError::new("Invalid generated function.").set_llvm_verify_kind())
+            Err(TonyError::new("Invalid generated function.").set_llvm_verify_kind()).unwrap()
         }
     }
 
