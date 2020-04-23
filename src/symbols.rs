@@ -241,6 +241,22 @@ impl ProgramEnvironment {
                 self.contains_stmt_symbol(Some(&new_scope_uuid), stmt.into_inner())?;
                 self.type_check(Some(&new_scope_uuid), stmt, &value)?;
             }
+            match value.body.last().map(|stmt_span| stmt_span.into_inner()) {
+                Some(ast::Stmt::Exit) | Some(ast::Stmt::Return(_)) => {}
+                Some(_) | None => {
+                    if value.return_type() != &ast::TonyType::Unit {
+                        return Err(TonyError::with_span(
+                            format!(
+                                "Function {} has no return statement; its return type is {:?} ",
+                                value.ident().0,
+                                value.return_type()
+                            ),
+                            value.header.0.var.id.span(),
+                        )
+                        .set_typecheck_kind());
+                    }
+                }
+            }
         }
         Ok(())
     }
