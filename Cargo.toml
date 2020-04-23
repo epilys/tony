@@ -18,3 +18,18 @@ libc = "0.2.69"
 
 [workspace]
 members = ["runtime", ]
+
+[profile.dev]
+overflow-checks = false
+debug-assertions = false
+lto = false
+incremental = false
+panic = "abort"
+
+[profile.release]
+overflow-checks = false
+debug-assertions = false
+lto = false
+incremental = false
+panic = "abort"
+
