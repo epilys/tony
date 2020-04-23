@@ -373,8 +373,9 @@ impl<'a> Lexer<'a> {
                                 ));
                             }
                             use std::convert::TryFrom;
-                            match u32::from_str_radix(&src[start..start + 2], 16)
-                                .ok()
+                            match src
+                                .get(start..start + 2)
+                                .and_then(|slice| u32::from_str_radix(slice, 16).ok())
                                 .and_then(|hex_num| char::try_from(hex_num).ok())
                             {
                                 Some(ascii) => {
@@ -486,8 +487,9 @@ impl<'a> Lexer<'a> {
                                 ));
                             }
                             use std::convert::TryFrom;
-                            match u32::from_str_radix(&src[pos + 1..pos + 3], 16)
-                                .ok()
+                            match src
+                                .get(pos + 1..pos + 3)
+                                .and_then(|slice| u32::from_str_radix(slice, 16).ok())
                                 .and_then(|hex_num| char::try_from(hex_num).ok())
                             {
                                 Some(ascii) => {
