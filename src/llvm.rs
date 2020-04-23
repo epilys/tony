@@ -849,7 +849,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         for stmt in self.function.body.iter() {
             self.compile_stmt(stmt)?;
         }
-        let entry = self.fn_value().get_last_basic_block().unwrap();
+        let entry = self.builder.get_insert_block().unwrap();
         if entry.get_terminator().is_none() {
             if self.function.header.0.var.as_str() == "main" {
                 self.builder.position_at_end(entry);
