@@ -93,22 +93,26 @@ impl std::fmt::Display for TonyErrorDisplay {
             Pos::Span(left, _right) => {
                 let mut lines = 0;
                 let mut line_offset = 0;
-                let prev_line = source_code[..left].rfind("\n").unwrap_or(0);
-                for l in source_code[..prev_line].split_n() {
-                    lines += 1;
-                    line_offset += l.len();
+                let prev_line = source_code[..=left].rfind("\n").unwrap_or(0);
+                for l in source_code[..=prev_line].split_n() {
+                    if l.ends_with("\n") {
+                        lines += 1;
+                        line_offset += l.len();
+                    }
                 }
-                (lines, left.saturating_sub(line_offset + 1))
+                (lines, left.saturating_sub(line_offset))
             }
             Pos::Offset(offset) => {
                 let mut lines = 0;
                 let mut line_offset = 0;
-                let prev_line = source_code[..offset].rfind("\n").unwrap_or(0);
-                for l in source_code[..prev_line].split_n() {
-                    lines += 1;
-                    line_offset += l.len();
+                let prev_line = source_code[..=offset].rfind("\n").unwrap_or(0);
+                for l in source_code[..=prev_line].split_n() {
+                    if l.ends_with("\n") {
+                        lines += 1;
+                        line_offset += l.len();
+                    }
                 }
-                (lines, offset.saturating_sub(line_offset + 1))
+                (lines, offset.saturating_sub(line_offset))
             }
         };
         let line_num_s = (index.0 + 1).to_string();
