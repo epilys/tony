@@ -241,6 +241,7 @@ impl ProgramEnvironment {
                 self.contains_stmt_symbol(Some(&new_scope_uuid), stmt.into_inner())?;
                 self.type_check(Some(&new_scope_uuid), stmt, &value)?;
             }
+            terminating_analysis(&value, &value.body)?;
         }
         Ok(())
     }
@@ -805,6 +806,46 @@ impl fmt::Debug for SymbolTable {
                 .field("types", &self.types)
                 .field("uuid", &self.uuid)
                 .finish()
+        }
+    }
+}
+
+fn terminating_analysis(
+    value: &ast::FuncDef,
+    stmts: &[ast::Span<ast::Stmt>],
+) -> Result<(), TonyError> {
+    let last_stmt = stmts.last().map(|stmt_span| stmt_span.into_inner());
+    match last_stmt {
+        Some(ast::Stmt::Exit) | Some(ast::Stmt::Return(_)) => Ok(()),
+        Some(ast::Stmt::Control(ast::StmtType::If { body, _else, .. })) => {
+            let b = terminating_analysis(value, body);
+            let e = terminating_analysis(value, _else);
+            if b.is_ok() && e.is_ok() {
+                return Ok(());
+            }
+            /* This is not a terminating block. */
+            if b.is_err() {
+                b
+            } else {
+                e
+            }
+        }
+        Some(ast::Stmt::Control(ast::StmtType::For { body, .. })) => {
+            terminating_analysis(value, body)
+        }
+        Some(_) | None => {
+            if value.return_type() != &ast::TonyType::Unit {
+                return Err(TonyError::with_span(
+                    format!(
+                        "Function {} has no return statement; its return type is {:?} ",
+                        value.ident().0,
+                        value.return_type()
+                    ),
+                    value.header.0.var.tony_type.span(),
+                )
+                .set_typecheck_kind());
+            }
+            Ok(())
         }
     }
 }
