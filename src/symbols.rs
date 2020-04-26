@@ -68,8 +68,8 @@ impl std::hash::Hash for Symbol {
 
 #[derive(Debug)]
 pub struct ProgramEnvironment {
-    symbol_tables: HashMap<ScopeUuid, SymbolTable>,
-    global_scope_uuid: ScopeUuid,
+    pub symbol_tables: HashMap<ScopeUuid, SymbolTable>,
+    pub global_scope_uuid: ScopeUuid,
 }
 
 macro_rules! this_scope {
@@ -241,22 +241,6 @@ impl ProgramEnvironment {
                 self.contains_stmt_symbol(Some(&new_scope_uuid), stmt.into_inner())?;
                 self.type_check(Some(&new_scope_uuid), stmt, &value)?;
             }
-            match value.body.last().map(|stmt_span| stmt_span.into_inner()) {
-                Some(ast::Stmt::Exit) | Some(ast::Stmt::Return(_)) => {}
-                Some(_) | None => {
-                    if value.return_type() != &ast::TonyType::Unit {
-                        return Err(TonyError::with_span(
-                            format!(
-                                "Function {} has no return statement; its return type is {:?} ",
-                                value.ident().0,
-                                value.return_type()
-                            ),
-                            value.header.0.var.id.span(),
-                        )
-                        .set_typecheck_kind());
-                    }
-                }
-            }
         }
         Ok(())
     }
@@ -346,7 +330,10 @@ impl ProgramEnvironment {
         match atom {
             ast::Atom::Id(ident_span) => self.contains_var_symbol(scope_uuid, ident_span),
             ast::Atom::StringLiteral(_) => Ok(()),
-            ast::Atom::AtomIndex(_atom, _expr) => todo!(),
+            ast::Atom::AtomIndex(atom, expr) => {
+                self.contains_atom_symbol(scope_uuid, atom)?;
+                self.contains_expr_symbol(scope_uuid, expr)
+            }
             ast::Atom::Call(ast::Call(ident_span, exprs)) => {
                 self.contains_func_symbol(scope_uuid, ident_span)?;
                 exprs
@@ -560,7 +547,25 @@ impl ProgramEnvironment {
             ast::Atom::StringLiteral(_) => Ok(ast::TonyType::Array(Box::new(
                 span![ast::TonyType::Char; 0,0],
             ))),
-            ast::Atom::AtomIndex(_atom, _expr) => todo!(),
+            ast::Atom::AtomIndex(atom, expr) => {
+                let t = self.atom_type_check(scope_uuid, atom, func_def)?;
+                let inner_type: ast::TonyType;
+                match t {
+                    ast::TonyType::Array(i) => {
+                        inner_type = i.into_inner().clone();
+                    }
+                    _ => {
+                        return Err(TonyError::with_span(
+                            format!("You cannot index var {:?}, it is of type {:?}.", &atom, t),
+                            expr.span(),
+                        )
+                        .set_symbol_table_kind());
+                    }
+                }
+                let idx_t = self.expr_type_check(scope_uuid, expr, func_def)?;
+                expected_type!(idx_t, ast::TonyType::Int, expr);
+                Ok(inner_type)
+            }
             ast::Atom::Call(ast::Call(ident_span, exprs)) => {
                 let def = self
                     .get_funcdef(scope_uuid, ident_span.into_inner())
@@ -640,9 +645,12 @@ impl ProgramEnvironment {
                 expected_type!(t_2, ast::TonyType::Int, right);
                 Ok(ast::TonyType::Int)
             }
-            ast::Expr::New(_type_span, _expr_span) => {
-                // TODO: check type
-                todo!()
+            ast::Expr::New(type_span, expr_span) => {
+                let index_t = self.expr_type_check(scope_uuid, expr_span, func_def)?;
+                expected_type!(index_t, ast::TonyType::Int, expr_span);
+                Ok(ast::TonyType::Array(Box::new(
+                    span![type_span.into_inner().clone(); 0,0],
+                )))
             }
         }
     }
@@ -686,7 +694,7 @@ impl ProgramEnvironment {
         }
     }
 
-    fn get_funcdef<'global>(
+    pub fn get_funcdef<'global>(
         &'global self,
         mut scope_uuid: Option<&'global ScopeUuid>,
         ident: &ast::Identifier,
@@ -720,6 +728,29 @@ impl ProgramEnvironment {
             if let Some(&idx) = table.ident_index.get(ident) {
                 if let Symbol::Variable { ref def, .. } = &table.symbols[idx] {
                     return Some(def);
+                }
+            }
+            if scope_uuid.is_none() {
+                return None;
+            }
+            scope_uuid = self.symbol_tables[scope_key].parent_scope.as_ref();
+        }
+    }
+
+    pub fn get_funcscope<'global>(
+        &'global self,
+        mut scope_uuid: Option<&'global ScopeUuid>,
+        ident: &ast::Identifier,
+    ) -> Option<&'global ScopeUuid> {
+        loop {
+            let scope_key = scope_uuid.unwrap_or(&self.global_scope_uuid);
+            let table = &self.symbol_tables[scope_key];
+            if let Some(&idx) = table.ident_index.get(ident) {
+                match &table.symbols[idx] {
+                    Symbol::Function { ref scope_uuid, .. } => {
+                        return Some(scope_uuid);
+                    }
+                    _ => {}
                 }
             }
             if scope_uuid.is_none() {

@@ -176,6 +176,15 @@ impl fmt::Debug for TonyType {
     }
 }
 
+impl TonyType {
+    pub fn is_array(&self) -> bool {
+        match self {
+            TonyType::Array(_) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
     Simple(Span<Simple>),

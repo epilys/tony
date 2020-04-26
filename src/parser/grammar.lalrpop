@@ -35,9 +35,9 @@ FuncDef: ast::Span<ast::FuncDef> = {
 };
 
 Header: (ast::Formal, Vec<ast::Formal>) = {
-   <l:@L> <header_type:TonyType?> <r:@R> <header_ident:Identifier> "(" <args:SemicolonList<FormalList>> ")" => {
+   <l:@L> <_ref:"ref"?> <header_type:TonyType?> <r:@R> <header_ident:Identifier> "(" <args:SemicolonList<FormalList>> ")" => {
      (ast::Formal {
-          is_ref: false,
+          is_ref: _ref.is_some(),
           var: ast::VarDef {
             tony_type: header_type.unwrap_or(span![ast::TonyType::Unit; l, r]),
             id: header_ident,
@@ -210,7 +210,7 @@ DExpr: Span<ast::Expr> = {
   <l:@L> <a:Atom> <r:@R> => span![ast::Expr::Atom(a); l,r],
   <l:@L> "true" <r:@R> => span![ast::Expr::True; l,r],
   <l:@L> "false" <r:@R> => span![ast::Expr::False; l,r],
-  //"new" <t:TonyType> "[" <e: Expr> "]" => ast::Expr::New(t, Box::new(e)),
+  <l:@L> "new" <t:TonyType> "[" <e: Expr> "]"  <r:@R> => span![ast::Expr::New(t, Box::new(e)); l,r],
   <l:@L> "nil" <r:@R> => span![ast::Expr::Nil; l,r],
   <l:@L> <i:IntConst> <r:@R> => span![ast::Expr::IntConst(i); l,r],
   <l:@L> <c:CharConst> <r:@R> => span![ast::Expr::CharConst(c); l,r],

@@ -281,7 +281,15 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
     fpm.initialize();
     // make module
     for funcdef in tony_frontend::builtins::builtins_to_funcdef() {
-        match Compiler::compile(&context, &builder, &fpm, &module, &funcdef) {
+        match Compiler::compile(
+            &context,
+            &builder,
+            &fpm,
+            &module,
+            &funcdef,
+            &env,
+            &env.global_scope_uuid,
+        ) {
             Ok(function) => {
                 if conf.display_compiler_output {
                     // Not printing a new line since LLVM automatically
@@ -304,7 +312,16 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
             println!("Function parsed: \n{}\n", &funcdef.into_inner());
         }
 
-        match Compiler::compile(&context, &builder, &fpm, &module, &funcdef) {
+        match Compiler::compile(
+            &context,
+            &builder,
+            &fpm,
+            &module,
+            &funcdef,
+            &env,
+            &env.get_funcscope(Some(&env.global_scope_uuid), funcdef.ident())
+                .unwrap(),
+        ) {
             Ok(function) => {
                 if conf.display_compiler_output {
                     // Not printing a new line since LLVM automatically

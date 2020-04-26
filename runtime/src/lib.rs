@@ -1,5 +1,13 @@
+use std::alloc::System;
+#[global_allocator]
+static GLOBAL: System = System;
+
 use libc;
+use std::fs::File;
 use std::io::Write;
+use std::os::unix::io::{FromRawFd, IntoRawFd};
+mod gc;
+pub use gc::*;
 /// - ret.insert_builtin_func("puti");
 /// - ret.insert_builtin_func("putb");
 /// - ret.insert_builtin_func("putc");
@@ -27,13 +35,13 @@ use std::io::Write;
 ///
 
 // macro used to print & flush without printing a new line
-macro_rules! print_flush {
-    ( $( $x:expr ),* ) => {
-        print!( $($x, )* );
-
-        std::io::stdout().flush().expect("Could not flush to standard output.");
-    };
-}
+//macro_rules! print_flush {
+//    ( $( $x:expr ),* ) => {
+//        print!( $($x, )* );
+//
+//        std::io::stdout().flush().expect("Could not flush to standard output.");
+//    };
+//}
 
 /// # Βιβλιοθήκη έτοιμων συναρτήσεων
 /// Η Tony υποστηρίζει ένα σύνολο προκαθορισμένων δομικών μονάδων, οι οποίες έχουν υλοποιηθεί σε
@@ -49,49 +57,37 @@ macro_rules! print_flush {
 /// ```
 #[no_mangle]
 pub extern "C" fn puti(x: i64) -> () {
-    std::io::stdout()
-        .flush()
-        .expect("Could not flush to standard output.");
-    let stdout = std::io::stdout();
-    let mut lock = stdout.lock();
-    write!(lock, "{}", x).unwrap();
-    std::io::stdout()
-        .flush()
-        .expect("Could not flush to standard output.");
+    let mut stdout = unsafe { File::from_raw_fd(1) };
+
+    write!(stdout, "{}", x).unwrap();
+    let _ = stdout.into_raw_fd();
 }
 
 #[no_mangle]
 pub extern "C" fn putb(b: bool) -> () {
-    print_flush!("{}", if b { "true" } else { "false" });
+    let mut stdout = unsafe { File::from_raw_fd(1) };
+
+    write!(stdout, "{}", if b { "true" } else { "false" }).unwrap();
+    let _ = stdout.into_raw_fd();
 }
 
 #[no_mangle]
 pub extern "C" fn putc(c: std::os::raw::c_int) -> () {
-    std::io::stdout()
-        .flush()
-        .expect("Could not flush to standard output.");
-    let stdout = std::io::stdout();
-    let mut lock = stdout.lock();
-    lock.write_all(&c.to_ne_bytes()).unwrap();
-    std::io::stdout()
-        .flush()
-        .expect("Could not flush to standard output.");
+    let mut stdout = unsafe { File::from_raw_fd(1) };
+    stdout.write_all(&c.to_ne_bytes()).unwrap();
+    let _ = stdout.into_raw_fd();
 }
 
 #[no_mangle]
 pub extern "C" fn puts(c: *const std::os::raw::c_char) -> () {
-    std::io::stdout()
-        .flush()
-        .expect("Could not flush to standard output.");
-    let stdout = std::io::stdout();
-    let mut lock = stdout.lock();
+    let mut stdout = unsafe { File::from_raw_fd(1) };
+
     unsafe {
-        lock.write_all(std::ffi::CStr::from_ptr(c).to_bytes())
+        stdout
+            .write_all(std::ffi::CStr::from_ptr(c).to_bytes())
             .unwrap();
-    };
-    std::io::stdout()
-        .flush()
-        .expect("Could not flush to standard output.");
+        let _ = stdout.into_raw_fd();
+    }
 }
 
 /// Οι συναρτήσεις αυτές χρησιμοποιούνται για την εκτύπωση τιμών που ανήκουν στους βασικούς τύπους
