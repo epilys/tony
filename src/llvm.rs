@@ -413,20 +413,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Compiles the specified `Stmt` into an LLVM `IntValue`.
-    fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), TonyError> {
+    fn compile_stmt(&mut self, stmt: &Stmt) -> Result<bool, TonyError> {
         //println!("compiling stmt {:?}", stmt);
         match stmt {
-            Stmt::Simple(simple_span) => self.compile_simple(simple_span),
+            Stmt::Simple(simple_span) => {
+                self.compile_simple(simple_span)?;
+                Ok(false)
+            }
             Stmt::Exit => {
                 self.compile_return_block()?;
-                self.builder.build_return(None);
-                Ok(())
+                if self.function.header.0.var.as_str() == "main" {
+                    self.builder
+                        .build_return(Some(&self.context.i64_type().const_zero()));
+                } else {
+                    self.builder.build_return(None);
+                }
+                Ok(true)
             }
             Stmt::Return(expr_span) => {
                 let ret = self.compile_expr(expr_span)?;
                 self.compile_return_block()?;
                 self.builder.build_return(Some(&ret));
-                Ok(())
+                Ok(true)
             }
             Stmt::Control(StmtType::If {
                 condition: condition_expr_span,
@@ -450,7 +458,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
                 self.builder.position_at_end(then_bb);
                 for stmt in body_stmt_spans.iter() {
-                    self.compile_stmt(stmt.into_inner())?;
+                    if self.compile_stmt(stmt.into_inner())? {
+                        break;
+                    };
                 }
                 let current_block = self.builder.get_insert_block().unwrap();
                 if current_block.get_terminator().is_none() {
@@ -463,7 +473,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 self.builder.position_at_end(else_bb);
                 for stmt in else_stmt_spans.iter() {
-                    self.compile_stmt(stmt.into_inner())?;
+                    if self.compile_stmt(stmt.into_inner())? {
+                        break;
+                    };
                 }
                 if else_bb.get_terminator().is_none() {
                     if cont_bb.is_none() {
@@ -483,7 +495,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 //Ok(phi.as_basic_value().into_int_value())
 
-                Ok(())
+                let current_block = self.builder.get_insert_block().unwrap();
+                Ok(current_block.get_terminator().is_some())
             }
             Stmt::Control(StmtType::For {
                 init: init_list,
@@ -527,7 +540,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 // emit body
                 for stmt in body_stmt_spans.iter() {
-                    self.compile_stmt(stmt.into_inner())?;
+                    if self.compile_stmt(stmt.into_inner())? {
+                        break;
+                    };
                 }
                 let current_block = self.builder.get_insert_block().unwrap();
                 if current_block.get_terminator().is_none() {
@@ -541,7 +556,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
                 self.builder.build_unconditional_branch(cond_bb);
                 self.builder.position_at_end(cont_bb);
-                Ok(())
+                Ok(cont_bb.get_terminator().is_some())
             }
         }
     }
@@ -811,7 +826,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
         }
         for stmt in self.function.body.iter() {
-            self.compile_stmt(stmt)?;
+            if self.compile_stmt(stmt)? {
+                break;
+            };
         }
         let entry = self.builder.get_insert_block().unwrap();
         if entry.get_terminator().is_none() {
