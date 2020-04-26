@@ -1,5 +1,8 @@
+#[cfg(feature = "fuzzing")]
+use libfuzzer_sys::arbitrary::{self, Arbitrary};
 use std::fmt;
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub struct Identifier(pub String);
 impl Identifier {
     pub fn as_str(&self) -> &str {
@@ -7,10 +10,13 @@ impl Identifier {
     }
 }
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub struct StringLiteral(pub String);
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub struct CharConst(pub char);
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub struct IntConst(pub i64, pub String);
 
 use std::ops::Deref;
@@ -31,6 +37,7 @@ impl std::cmp::PartialEq for IntConst {
 impl std::cmp::Eq for IntConst {}
 
 #[derive(Clone)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub struct Span<T: std::fmt::Debug + Clone + PartialEq + Eq> {
     pub left: usize,
     pub right: usize,
@@ -75,9 +82,11 @@ macro_rules! span {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub struct Program(pub Vec<Span<FuncDef>>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub struct FuncDef {
     pub header: (Formal, Vec<Formal>),
     pub declarations: Vec<Span<Decl>>,
@@ -118,6 +127,7 @@ impl fmt::Display for FuncDef {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub struct Formal {
     pub is_ref: bool,
     pub var: VarDef,
@@ -130,6 +140,7 @@ impl fmt::Debug for Formal {
 }
 
 #[derive(PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub struct VarDef {
     pub tony_type: Span<TonyType>,
     pub id: Span<Identifier>,
@@ -153,6 +164,7 @@ impl fmt::Debug for VarDef {
 }
 
 #[derive(PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub enum TonyType {
     Int,
     Bool,
@@ -186,6 +198,7 @@ impl TonyType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub enum Stmt {
     Simple(Span<Simple>),
     Exit,
@@ -194,6 +207,7 @@ pub enum Stmt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub enum StmtType {
     If {
         condition: Box<Span<Expr>>,
@@ -209,6 +223,7 @@ pub enum StmtType {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub enum Simple {
     Skip,
     Call(Call),
@@ -230,6 +245,7 @@ impl fmt::Debug for Simple {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub struct Call(pub Span<Identifier>, pub Vec<Span<Expr>>);
 
 impl fmt::Debug for Call {
@@ -255,6 +271,7 @@ impl fmt::Debug for Call {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub enum Atom {
     Id(Span<Identifier>),
     StringLiteral(StringLiteral),
@@ -274,6 +291,7 @@ impl fmt::Debug for Atom {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub enum Expr {
     Atom(Atom),
     IntConst(IntConst),
@@ -290,12 +308,14 @@ pub enum Expr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub enum Decl {
     Func(Span<FuncDef>),
     Var(Vec<VarDef>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub enum Operator {
     Equals,
     NotEquals,

@@ -22,6 +22,11 @@ lalrpop-util = "0.18.1"
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "llvm8-0" }
 uuid = { version = "0.7.4", features = ["v4"] }
 libc = "0.2.69"
+libfuzzer-sys = { version = "0.3", optional = true, features = ["arbitrary-derive"] }
+
+[features]
+default = []
+fuzzing = ["libfuzzer-sys"]
 
 [workspace]
 members = ["runtime", ]

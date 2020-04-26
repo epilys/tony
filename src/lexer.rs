@@ -1,8 +1,11 @@
 use super::*;
 
+#[cfg(feature = "fuzzing")]
+use libfuzzer_sys::arbitrary::{self, Arbitrary};
 // κτικές μονάδες της γλώσσας Tony χωρίζονται στις παρακάτω κατηγορίες:
 /// Represents a primitive syntax token.
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub enum Token {
     // Τις λέξεις κλειδιά, οι οποίες είναι οι παρακάτω:
     // and end list ref char false new skip decl for nil tail def head nil?  true else if not elif int or

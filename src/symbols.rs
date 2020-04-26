@@ -614,7 +614,13 @@ impl ProgramEnvironment {
             ast::Expr::IntConst(_) => Ok(ast::TonyType::Int),
             ast::Expr::CharConst(_) => Ok(ast::TonyType::Char),
             ast::Expr::True | ast::Expr::False => Ok(ast::TonyType::Bool),
-            ast::Expr::Nil => todo!(),
+            ast::Expr::Nil => {
+                return Err(TonyError::with_span(
+                    "nil operator not implemented",
+                    func_def.header.0.var.id.span(),
+                )
+                .set_symbol_table_kind());
+            }
             ast::Expr::Not(expr_span) => {
                 let t = self.expr_type_check(scope_uuid, expr_span, func_def)?;
                 expected_type!(t, ast::TonyType::Bool, expr_span);

@@ -1,4 +1,6 @@
 extern crate inkwell;
+#[cfg(feature = "fuzzing")]
+extern crate libfuzzer_sys;
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::ops::DerefMut;

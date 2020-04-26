@@ -188,3 +188,35 @@ impl LineSplit for str {
         LineIterator { slice: self }
     }
 }
+
+impl From<lalrpop_util::ParseError<usize, crate::lexer::Token, TonyError>> for TonyError {
+    fn from(err: lalrpop_util::ParseError<usize, crate::lexer::Token, TonyError>) -> Self {
+        match err {
+            lalrpop_util::ParseError::InvalidToken { ref location } => {
+                TonyError::with_offset("Invalid token", *location)
+            }
+            lalrpop_util::ParseError::UnrecognizedEOF {
+                ref location,
+                ref expected,
+            } => TonyError::with_offset(
+                format!("Unrecognized EOF\nExpected tokens: {}", expected.join(", ")),
+                *location,
+            ),
+            lalrpop_util::ParseError::UnrecognizedToken {
+                token: (ref l, ref t, ref r),
+                ref expected,
+            } => TonyError::with_span(
+                format!(
+                    "Unrecognized token: \"{}\"\nExpected tokens: {}",
+                    t,
+                    expected.join(", ")
+                ),
+                (*l, *r),
+            ),
+            lalrpop_util::ParseError::ExtraToken {
+                token: (ref l, ref t, ref r),
+            } => TonyError::with_span(format!("Extra token of type {:?}:", t,), (*l, *r)),
+            lalrpop_util::ParseError::User { error: err } => err.set_parser_kind(),
+        }
+    }
+}
