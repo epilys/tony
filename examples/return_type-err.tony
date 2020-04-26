@@ -1,0 +1,3 @@
+def int main ():
+  puts(”Hello world!\n”)
+end
