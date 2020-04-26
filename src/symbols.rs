@@ -481,6 +481,17 @@ impl ProgramEnvironment {
                     )
                     .set_typecheck_kind());
                 }
+                if func_def.return_type() == &ast::TonyType::Unit {
+                    return Err(TonyError::with_span(
+                        format!(
+                            "Function {} has a {:?} return type, but uses a `return` statement. (Use `exit`)",
+                            func_def.ident().0,
+                            func_def.return_type()
+                        ),
+                        func_def.header.0.var.id.span(),
+                    )
+                    .set_typecheck_kind());
+                }
             }
             ast::Stmt::Control(ast::StmtType::If {
                 condition: condition_expr_span,
