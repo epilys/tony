@@ -602,7 +602,8 @@ impl ProgramEnvironment {
             }
         }
     }
-    fn expr_type_check(
+
+    pub fn expr_type_check(
         &self,
         scope_uuid: Option<&ScopeUuid>,
         expr: &ast::Expr,
@@ -699,6 +700,17 @@ impl ProgramEnvironment {
             }
             ast::Simple::Assignment(atom, expr_span) => {
                 let atom_type = self.atom_type_check(scope_uuid, atom, func_def)?;
+                if atom_type == ast::TonyType::Unit {
+                    return Err(TonyError::with_span(
+                        format!(
+                            "Cannot assign to type {:?} in function {:?}",
+                            atom_type,
+                            func_def.ident().0,
+                        ),
+                        func_def.header.0.var.id.span(),
+                    )
+                    .set_typecheck_kind());
+                }
                 let t = self.expr_type_check(scope_uuid, expr_span, func_def)?;
                 expected_type!(t, atom_type, expr_span);
                 Ok(ast::TonyType::Unit)

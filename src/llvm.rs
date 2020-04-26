@@ -362,7 +362,53 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 return Ok(());
             }
-            Simple::Assignment(Atom::Call(_), _) => todo!(),
+            Simple::Assignment(Atom::Call(call), expr_span) => {
+                let var_val = self.compile_expr(expr_span)?;
+                let var = self.compile_call(call)?.unwrap();
+                if !var.get_type().is_pointer_type() {
+                    return Ok(());
+                }
+                let var = var.into_pointer_value();
+                let var_type = self.symbol_tables.expr_type_check(
+                    Some(self.scope_uuid),
+                    expr_span.into_inner(),
+                    self.function,
+                )?;
+                match (
+                    var.get_type().get_element_type().is_pointer_type(),
+                    var_val.is_pointer_value(),
+                ) {
+                    (true, true) if var_type.is_array() => {
+                        HeapArray::decref(self, var)?;
+                        self.builder.build_store(var, var_val);
+                    }
+                    (true, true) => {
+                        self.builder.build_store(
+                            self.builder.build_load(var, "tmpload").into_pointer_value(),
+                            self.builder
+                                .build_load(var_val.into_pointer_value(), "tmpload"),
+                        );
+                    }
+                    (true, false) => {
+                        self.builder.build_store(
+                            self.builder.build_load(var, "tmpload").into_pointer_value(),
+                            var_val,
+                        );
+                    }
+                    (false, true) => {
+                        self.builder.build_store(
+                            var,
+                            self.builder
+                                .build_load(var_val.into_pointer_value(), "tmpload"),
+                        );
+                    }
+                    (false, false) => {
+                        self.builder.build_store(var, var_val);
+                    }
+                }
+
+                return Ok(());
+            }
         }
     }
 
