@@ -344,6 +344,15 @@ impl ProgramEnvironment {
                     .map(|_| ())?;
                 Ok(())
             }
+            ast::Atom::ListOp(list_op_span) => match list_op_span.into_inner() {
+                ast::ListOp::Head(expr_span)
+                | ast::ListOp::Tail(expr_span)
+                | ast::ListOp::NilQ(expr_span) => self.contains_expr_symbol(scope_uuid, expr_span),
+                ast::ListOp::Cons(left_span, right_span) => {
+                    self.contains_expr_symbol(scope_uuid, left_span)?;
+                    self.contains_expr_symbol(scope_uuid, right_span)
+                }
+            },
         }
     }
 
@@ -600,6 +609,66 @@ impl ProgramEnvironment {
                 }
                 Ok(def.return_type().clone())
             }
+            ast::Atom::ListOp(list_op_span) => match list_op_span.into_inner() {
+                ast::ListOp::Head(expr_span) => {
+                    let expr_type = self.expr_type_check(scope_uuid, expr_span, func_def)?;
+                    let inner_type = match expr_type {
+                        ast::TonyType::List(inner_type) => inner_type,
+                        other => {
+                            return Err(TonyError::with_span(
+                                format!("Expected type List[_], found {:?}", other),
+                                expr_span.span(),
+                            )
+                            .set_typecheck_kind());
+                        }
+                    };
+                    Ok(inner_type.into_inner().clone())
+                }
+                ast::ListOp::NilQ(expr_span) => {
+                    let expr_type = self.expr_type_check(scope_uuid, expr_span, func_def)?;
+                    match expr_type {
+                        ast::TonyType::List(_) => {}
+                        other => {
+                            return Err(TonyError::with_span(
+                                format!("Expected type List[_], found {:?}", other),
+                                expr_span.span(),
+                            )
+                            .set_typecheck_kind());
+                        }
+                    };
+                    Ok(ast::TonyType::Bool)
+                }
+                ast::ListOp::Tail(expr_span) => {
+                    let expr_type = self.expr_type_check(scope_uuid, expr_span, func_def)?;
+                    match expr_type {
+                        ast::TonyType::List(_) => {}
+                        other => {
+                            return Err(TonyError::with_span(
+                                format!("Expected type List[_], found {:?}", other),
+                                expr_span.span(),
+                            )
+                            .set_typecheck_kind());
+                        }
+                    };
+                    Ok(expr_type.clone())
+                }
+                ast::ListOp::Cons(left_span, right_span) => {
+                    let left_type = self.expr_type_check(scope_uuid, left_span, func_def)?;
+                    let right_type = self.expr_type_check(scope_uuid, right_span, func_def)?;
+                    let inner_type = match right_type {
+                        ast::TonyType::List(inner_type) => inner_type,
+                        other => {
+                            return Err(TonyError::with_span(
+                                format!("Expected type List[_], found {:?}", other),
+                                right_span.span(),
+                            )
+                            .set_typecheck_kind());
+                        }
+                    };
+                    expected_type!(left_type, *inner_type.into_inner(), left_span);
+                    Ok(ast::TonyType::List(inner_type.clone()))
+                }
+            },
         }
     }
 
@@ -614,13 +683,9 @@ impl ProgramEnvironment {
             ast::Expr::IntConst(_) => Ok(ast::TonyType::Int),
             ast::Expr::CharConst(_) => Ok(ast::TonyType::Char),
             ast::Expr::True | ast::Expr::False => Ok(ast::TonyType::Bool),
-            ast::Expr::Nil => {
-                return Err(TonyError::with_span(
-                    "nil operator not implemented",
-                    func_def.header.0.var.id.span(),
-                )
-                .set_symbol_table_kind());
-            }
+            ast::Expr::Nil => Ok(ast::TonyType::List(Box::new(
+                span![ast::TonyType::Any; 0,0],
+            ))),
             ast::Expr::Not(expr_span) => {
                 let t = self.expr_type_check(scope_uuid, expr_span, func_def)?;
                 expected_type!(t, ast::TonyType::Bool, expr_span);

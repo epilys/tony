@@ -177,6 +177,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Expr::Atom(Atom::Call(_)) => {
                 Ok(auto_deref!(self.compile_expr(expr)?, self.builder).into_int_value())
             }
+            Expr::Atom(Atom::ListOp(list_op_span)) if list_op_span.is_nilq() => {
+                if let ListOp::NilQ(expr_span) = list_op_span.into_inner() {
+                    let ptr = self.compile_expr(expr_span)?.into_pointer_value();
+                    Ok(self.builder.build_is_null(ptr, "isnullcheck"))
+                } else {
+                    unreachable!()
+                }
+            }
             _ => Err(TonyError::with_span(
                 format!("expected bool, found {:?}", expr.into_inner()),
                 expr.span(),
@@ -224,6 +232,37 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     todo!()
                 }
             }
+            Expr::Atom(Atom::ListOp(list_op_span)) => match list_op_span.into_inner() {
+                ListOp::Head(expr_span) => {
+                    let ptr = self.compile_expr(expr_span)?.into_pointer_value();
+                    HeapList::head(self, ptr).map(|p| p.as_basic_value_enum())
+                }
+                ListOp::Tail(expr_span) => {
+                    let ptr = self.compile_expr(expr_span)?.into_pointer_value();
+                    HeapList::tail(self, ptr).map(|p| p.as_basic_value_enum())
+                }
+                ListOp::NilQ(expr_span) => {
+                    let ptr = self.compile_expr(expr_span)?.into_pointer_value();
+                    Ok(self
+                        .builder
+                        .build_is_null(ptr, "isnullcheck")
+                        .as_basic_value_enum())
+                }
+                ListOp::Cons(head_span, tail_span) => {
+                    let head_val = self.compile_expr(head_span)?;
+                    if head_val.is_pointer_value() {
+                        let tail_ptr = self.compile_expr(tail_span)?.into_pointer_value();
+                        Ok(HeapList::cons(self, head_val.into_pointer_value(), tail_ptr).into())
+                    } else {
+                        let head_ptr = self
+                            .builder
+                            .build_alloca(head_val.get_type(), "tmp_ref_cons");
+                        self.builder.build_store(head_ptr, head_val);
+                        let tail_ptr = self.compile_expr(tail_span)?.into_pointer_value();
+                        Ok(HeapList::cons(self, head_ptr, tail_ptr).into())
+                    }
+                }
+            },
             Expr::IntConst(IntConst(v, _)) => Ok(self
                 .context
                 .i64_type()
@@ -288,7 +327,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let len = self.compile_expr(expr_span)?.into_int_value();
                 Ok(HeapArray::new(self, type_span, len).into())
             }
-            Expr::Nil => todo!(),
+            Expr::Nil => Ok(self
+                .context
+                .i64_type()
+                .ptr_type(AddressSpace::Generic)
+                .const_null()
+                .into()),
         }
     }
 
@@ -409,6 +453,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 return Ok(());
             }
+            Simple::Assignment(Atom::ListOp(_), _) => todo!(),
         }
     }
 
@@ -728,11 +773,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         arg.into_int_value().set_name(arg_decls[i].var.as_str())
                     }
                     TonyType::Unit => unreachable!(),
+                    TonyType::Any => unreachable!(),
                     TonyType::Array(_) => {
                         arg.into_pointer_value().set_name(arg_decls[i].var.as_str())
                     }
                     TonyType::List(_) => {
-                        arg.into_vector_value().set_name(arg_decls[i].var.as_str())
+                        arg.into_pointer_value().set_name(arg_decls[i].var.as_str())
                     }
                 };
             }
@@ -894,6 +940,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     fn tonytype_into_basictypenum(context: &'ctx Context, t: &TonyType) -> BasicTypeEnum<'ctx> {
         match t {
+            TonyType::Any => unreachable!(),
             TonyType::Int => context.i64_type().into(),
             TonyType::Bool => context.bool_type().into(),
             TonyType::Char => context.i8_type().into(),
@@ -912,6 +959,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     ) -> FunctionType<'ctx> {
         if is_ref {
             match t {
+                TonyType::Any => unreachable!(),
                 TonyType::Int => context
                     .i64_type()
                     .ptr_type(AddressSpace::Generic)
@@ -933,6 +981,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
         } else {
             match t {
+                TonyType::Any => unreachable!(),
                 TonyType::Int => context.i64_type().fn_type(args, false),
                 TonyType::Bool => context.bool_type().fn_type(args, false),
                 TonyType::Char => context.i8_type().fn_type(args, false),
@@ -958,6 +1007,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 .into()
         } else {
             match t {
+                TonyType::Any => unreachable!(),
                 TonyType::Unit => unreachable!(),
                 TonyType::Bool | TonyType::Int | TonyType::Char => ptr
                     .get_type()
@@ -968,7 +1018,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 TonyType::Array(type_span) => {
                     Compiler::tonytype_default_value(context, type_span.into_inner(), ptr)
                 }
-                TonyType::List(_) => unreachable!(),
+                TonyType::List(_) => context
+                    .i64_type()
+                    .ptr_type(AddressSpace::Generic)
+                    .const_null()
+                    .into(),
             }
         }
     }

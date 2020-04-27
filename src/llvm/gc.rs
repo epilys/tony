@@ -136,3 +136,83 @@ impl HeapArray {
         Ok(())
     }
 }
+
+pub struct HeapList;
+
+use super::*;
+
+impl HeapList {
+    pub fn cons<'a, 'ctx>(
+        compiler: &'_ Compiler<'a, 'ctx>,
+        head: PointerValue<'ctx>,
+        tail: PointerValue<'ctx>,
+    ) -> PointerValue<'ctx> {
+        let cons_fn = compiler.get_function("list_cons__").unwrap();
+        let element_type_len = head.get_type().get_element_type().size_of().unwrap().into();
+
+        let head_ptr = compiler.builder.build_pointer_cast(
+            head,
+            compiler.context.i64_type().ptr_type(AddressSpace::Generic),
+            "cons_ptr_cast",
+        );
+        compiler.builder.build_pointer_cast(
+            compiler
+                .builder
+                .build_call(
+                    cons_fn,
+                    &[head_ptr.into(), tail.into(), element_type_len],
+                    "cons_fn__",
+                )
+                .try_as_basic_value()
+                .left()
+                .unwrap()
+                .into_pointer_value(),
+            head.get_type(),
+            "list_cons__ptr",
+        )
+    }
+
+    pub fn tail<'a, 'ctx>(
+        compiler: &'_ Compiler<'a, 'ctx>,
+        ptr: PointerValue<'ctx>,
+    ) -> Result<PointerValue<'ctx>, TonyError> {
+        let head_fn = compiler.get_function("list_tail__").unwrap();
+
+        Ok(compiler
+            .builder
+            .build_pointer_cast(
+                compiler
+                    .builder
+                    .build_call(head_fn, &[ptr.into()], "tail_fn__")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_pointer_value(),
+                ptr.get_type(),
+                "list_tail__ptr",
+            )
+            .into())
+    }
+
+    pub fn head<'a, 'ctx>(
+        compiler: &'_ Compiler<'a, 'ctx>,
+        ptr: PointerValue<'ctx>,
+    ) -> Result<PointerValue<'ctx>, TonyError> {
+        let head_fn = compiler.get_function("list_head__").unwrap();
+
+        Ok(compiler
+            .builder
+            .build_pointer_cast(
+                compiler
+                    .builder
+                    .build_call(head_fn, &[ptr.into()], "head_fn__")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_pointer_value(),
+                ptr.get_type(),
+                "list_head__ptr",
+            )
+            .into())
+    }
+}

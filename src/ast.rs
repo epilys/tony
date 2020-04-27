@@ -163,16 +163,38 @@ impl fmt::Debug for VarDef {
     }
 }
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(Clone)]
 #[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
 pub enum TonyType {
     Int,
     Bool,
     Char,
     Unit,
+    Any,
     Array(Box<Span<TonyType>>),
     List(Box<Span<TonyType>>),
 }
+
+impl std::cmp::PartialEq for TonyType {
+    fn eq(&self, other: &Self) -> bool {
+        use TonyType::*;
+        match (self, other) {
+            (Any, _) | (_, Any) => true,
+            (Int, Int) => true,
+            (Bool, Bool) => true,
+            (Char, Char) => true,
+            (Unit, Unit) => true,
+            (Array(left_span), Array(right_span)) => {
+                left_span.into_inner() == right_span.into_inner()
+            }
+            (List(left_span), List(right_span)) => {
+                left_span.into_inner() == right_span.into_inner()
+            }
+            _ => false,
+        }
+    }
+}
+impl std::cmp::Eq for TonyType {}
 
 impl fmt::Debug for TonyType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -182,8 +204,9 @@ impl fmt::Debug for TonyType {
             Bool => write!(f, "bool"),
             Char => write!(f, "char"),
             Unit => write!(f, "()"),
+            Any => write!(f, "Any"),
             Array(inner) => write!(f, "array {:?}[]", inner.into_inner()),
-            List(inner) => write!(f, "list {:?}[]", inner.into_inner()),
+            List(inner) => write!(f, "list[{:?}]", inner.into_inner()),
         }
     }
 }
@@ -192,6 +215,20 @@ impl TonyType {
     pub fn is_array(&self) -> bool {
         match self {
             TonyType::Array(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_list(&self) -> bool {
+        match self {
+            TonyType::List(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_any(&self) -> bool {
+        match self {
+            TonyType::Any => true,
             _ => false,
         }
     }
@@ -277,6 +314,7 @@ pub enum Atom {
     StringLiteral(StringLiteral),
     AtomIndex(Box<Atom>, Box<Span<Expr>>),
     Call(Call),
+    ListOp(Span<ListOp>),
 }
 
 impl fmt::Debug for Atom {
@@ -286,6 +324,25 @@ impl fmt::Debug for Atom {
             Atom::StringLiteral(lit) => lit.fmt(f),
             Atom::AtomIndex(atom, expr_span) => write!(f, "{:?}[{:?}]", atom, expr_span),
             Atom::Call(call) => call.fmt(f),
+            Atom::ListOp(listop) => listop.fmt(f),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzzing", derive(arbitrary::Arbitrary))]
+pub enum ListOp {
+    Cons(Box<Span<Expr>>, Box<Span<Expr>>),
+    Head(Box<Span<Expr>>),
+    Tail(Box<Span<Expr>>),
+    NilQ(Box<Span<Expr>>),
+}
+
+impl ListOp {
+    pub fn is_nilq(&self) -> bool {
+        match self {
+            ListOp::NilQ(_) => true,
+            _ => false,
         }
     }
 }

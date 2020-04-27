@@ -1,4 +1,6 @@
 use std::alloc::{handle_alloc_error, GlobalAlloc, Layout, System};
+mod lists;
+pub use lists::*;
 
 /*
 macro_rules! print_{
@@ -33,7 +35,7 @@ thread_local! {
 }
 
 #[no_mangle]
-pub extern "C" fn alloc__(array_size: libc::size_t, element_size: libc::size_t) -> *const u8 {
+pub extern "C" fn alloc__(array_size: libc::size_t, element_size: libc::size_t) -> *mut u8 {
     unsafe {
         let layout = Layout::from_size_align(array_size * (element_size), element_size).unwrap();
         let ptr: *mut u8 = System.alloc_zeroed(layout);
