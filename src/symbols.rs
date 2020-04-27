@@ -503,7 +503,7 @@ impl ProgramEnvironment {
                 {
                     return Err(TonyError::with_span(
                         format!("If condition must be a bool expression"),
-                        func_def.header.0.var.id.span(),
+                        condition_expr_span.span(),
                     )
                     .set_typecheck_kind());
                 }
