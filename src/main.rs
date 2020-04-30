@@ -19,6 +19,7 @@ struct RunConfig {
     display_lexer_output: bool,
     display_parser_output: bool,
     display_compiler_output: bool,
+    file: String,
 }
 
 /// Entry point of the program; acts as a REPL.
@@ -28,6 +29,7 @@ pub fn main() {
         display_lexer_output: false,
         display_parser_output: false,
         display_compiler_output: false,
+        file: String::new(),
     };
 
     for arg in std::env::args() {
@@ -35,133 +37,12 @@ pub fn main() {
             "--dl" => runtime_config.display_lexer_output = true,
             "--dp" => runtime_config.display_parser_output = true,
             "--dc" => runtime_config.display_compiler_output = true,
-            _ => (),
+            _ => {
+                runtime_config.file = arg;
+            }
         }
     }
 
-    /*
-        let context = Context::create();
-        let module = context.create_module("repl");
-        let builder = context.create_builder();
-
-        // Create FPM
-        let fpm = PassManager::create(&module);
-
-        fpm.add_instruction_combining_pass();
-        fpm.add_reassociate_pass();
-        fpm.add_gvn_pass();
-        fpm.add_cfg_simplification_pass();
-        fpm.add_basic_alias_analysis_pass();
-        fpm.add_promote_memory_to_register_pass();
-        fpm.add_instruction_combining_pass();
-        fpm.add_reassociate_pass();
-
-        fpm.initialize();
-
-        let mut previous_exprs = Vec::new();
-        let mut ctr = 0;
-        loop {
-            if ctr > 0 {
-                break;
-            }
-            ctr += 1;
-            println!();
-            //print_flush!("?> ");
-
-            // Read input from stdin
-            let mut input = String::new();
-            io::stdin()
-                .read_to_string(&mut input)
-                .expect("Could not read from standard input.");
-
-            if input.starts_with("exit") || input.starts_with("quit") {
-                break;
-            } else if input.chars().all(char::is_whitespace) {
-                continue;
-            }
-
-            // Build precedence map
-            let mut prec = HashMap::with_capacity(6);
-
-            prec.insert('=', 2);
-            prec.insert('<', 10);
-            prec.insert('+', 20);
-            prec.insert('-', 20);
-            prec.insert('*', 40);
-            prec.insert('/', 40);
-
-            // Parse and (optionally) display input
-
-            // make module
-            let module = context.create_module("tmp");
-
-            // recompile every previously parsed function into the new module
-            for prev in &previous_exprs {
-                Compiler::compile(&context, &builder, &fpm, &module, prev)
-                    .expect("Cannot re-add previously compiled function.");
-            }
-
-            let (name, is_anonymous) = match Parser::new(input, &mut prec).parse() {
-                Ok(fun) => {
-                    let is_anon = fun.is_anon;
-
-                    if display_parser_output {
-                        if is_anon {
-                            println!("-> Expression parsed: \n{:?}\n", fun.body);
-                        } else {
-                            println!("-> Function parsed: \n{:?}\n", fun);
-                        }
-                    }
-
-                    match Compiler::compile(&context, &builder, &fpm, &module, &fun) {
-                        Ok(function) => {
-                            if display_compiler_output {
-                                // Not printing a new line since LLVM automatically
-                                // prefixes the generated string with one
-                                //print_flush!("-> Expression compiled to IR:");
-                                function.print_to_stderr();
-                            }
-
-                            if !is_anon {
-                                // only add it now to ensure it is correct
-                                previous_exprs.push(fun);
-                            }
-
-                            (function.get_name().to_str().unwrap().to_string(), is_anon)
-                        }
-                        Err(err) => {
-                            println!("!> Error compiling function: {}", err);
-                            continue;
-                        }
-                    }
-                }
-                Err(err) => {
-                    println!("!> Error parsing expression: {}", err);
-                    continue;
-                }
-            };
-
-            if is_anonymous {
-                let ee = module
-                    .create_jit_execution_engine(OptimizationLevel::None)
-                    .unwrap();
-
-                let maybe_fn =
-                    unsafe { ee.get_function::<unsafe extern "C" fn() -> f64>(name.as_str()) };
-                let compiled_fn = match maybe_fn {
-                    Ok(f) => f,
-                    Err(err) => {
-                        println!("!> Error during execution: {:?}", err);
-                        continue;
-                    }
-                };
-
-                unsafe {
-                    println!("=> {}", compiled_fn.call());
-                }
-            }
-        }
-    */
     if let Err(exit_code) = run_app(runtime_config) {
         std::process::exit(exit_code);
     }
@@ -169,8 +50,8 @@ pub fn main() {
 
 fn run_app(conf: RunConfig) -> Result<(), i32> {
     let mut input = String::new();
-    io::stdin()
-        .read_to_string(&mut input)
+    let mut file = std::fs::File::open(conf.file.as_str()).unwrap();
+    file.read_to_string(&mut input)
         .expect("Could not read from standard input.");
 
     if conf.display_lexer_output {
@@ -263,6 +144,33 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
     let context = Context::create();
     let module = context.create_module("bin");
     let builder = context.create_builder();
+    let debug_metadata_version = context.i32_type().const_int(3, false);
+    module.add_basic_value_flag(
+        "Debug Info Version",
+        inkwell::module::FlagBehavior::Warning,
+        debug_metadata_version,
+    );
+
+    let dibuilder = module.create_debug_info_builder(true);
+
+    let compile_unit = dibuilder.create_compile_unit(
+        inkwell::debug_info::DWARFSourceLanguage::C,
+        dibuilder.create_file(conf.file.as_str(), "."),
+        /* producer */ "tony toy compiler",
+        /* is_optimized */ false,
+        /*flags*/ "",
+        /* runtime_ver */ 1,
+        /*split_name */ "debug_file",
+        /* kind */ inkwell::debug_info::DWARFEmissionKind::Full,
+        /*dwo_id */ 0x0,
+        /* split_debug_inling */ true,
+        /* debug_info_for_profiling */ false,
+    );
+    let debug_helper = DebugHelper {
+        dibuilder: &dibuilder,
+        compile_unit: &compile_unit,
+        input: input.as_str(),
+    };
 
     // Create FPM
     let fpm = PassManager::create(&module);
@@ -284,6 +192,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
         match Compiler::compile(
             &context,
             &builder,
+            &debug_helper,
             &fpm,
             &module,
             &funcdef,
@@ -315,6 +224,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
         match Compiler::compile(
             &context,
             &builder,
+            &debug_helper,
             &fpm,
             &module,
             &funcdef,
@@ -340,6 +250,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
         }
     }
     println!("cool beans");
+    dibuilder.finalize();
     use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
     use inkwell::OptimizationLevel;
 

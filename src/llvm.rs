@@ -4,6 +4,9 @@ use crate::symbols::{ProgramEnvironment, ScopeUuid};
 
 use inkwell::builder::Builder;
 pub use inkwell::context::Context;
+use inkwell::debug_info::{
+    AsDIScope, DICompileUnit, DIFlags, DILexicalBlock, DIScope, DISubProgram, DebugInfoBuilder,
+};
 use inkwell::module::Module;
 pub use inkwell::passes::PassManager;
 use inkwell::types::{BasicTypeEnum, FunctionType};
@@ -29,10 +32,122 @@ struct Variable<'ctx> {
     def: Formal,
 }
 
+#[derive(Copy, Clone)]
+pub struct DebugHelper<'a, 'ctx> {
+    pub dibuilder: &'a DebugInfoBuilder<'ctx>,
+    pub compile_unit: &'a DICompileUnit<'ctx>,
+    pub input: &'a str,
+}
+
+impl<'a, 'ctx> DebugHelper<'a, 'ctx> {
+    fn span_to_line(&self, span: (usize, usize)) -> (u32, u32) {
+        use std::convert::TryInto;
+        let (left, _) = span;
+        let mut lines = 1_usize;
+        let mut line_offset = 0_usize;
+        let prev_line = self
+            .input
+            .char_indices()
+            .filter(|(pos, _)| *pos <= left)
+            .filter(|(_, c)| *c == '\n')
+            .map(|(pos, _)| pos)
+            .max()
+            .unwrap_or(0);
+        for l in self.input[..=prev_line].split_n() {
+            if l.ends_with("\n") {
+                lines += 1;
+                line_offset += l.len();
+            }
+        }
+        (
+            lines.try_into().unwrap(),
+            left.saturating_sub(line_offset).try_into().unwrap(),
+        )
+    }
+
+    fn create_function(&self, funcdef: &FuncDef) -> DISubProgram<'ctx> {
+        let func_scope: DIScope<'ctx> = self.compile_unit.as_debug_info_scope();
+        let ditype = self.dibuilder.create_basic_type(
+            &format!("{:?}", funcdef.return_type()),
+            64_u64,
+            0x05,
+            DIFlags::Public,
+        );
+        let subr_type = self.dibuilder.create_subroutine_type(
+            self.compile_unit.get_file(),
+            ditype,
+            vec![],
+            DIFlags::Public,
+        );
+
+        let flags = if funcdef.ident().0.as_str() == "main" {
+            DIFlags::Public
+        } else {
+            DIFlags::Prototyped
+        };
+
+        let ret = self.dibuilder.create_function(
+            /* scope */ func_scope,
+            /* func name */ funcdef.ident().0.as_str(),
+            /* linkage_name */ None,
+            /* file */ self.compile_unit.get_file(),
+            /* line_no */ self.span_to_line(funcdef.header.0.var.id.span()).0,
+            /* DIType */ subr_type,
+            /* is_local_to_unit */ false,
+            /* is_definition */ true,
+            /* scope_line */ self.span_to_line(funcdef.header.0.var.id.span()).0,
+            /* flags */ flags,
+            /* is_optimized */ false,
+        );
+        ret
+    }
+
+    fn create_lexical_block(
+        &self,
+        scope: DISubProgram<'ctx>,
+        start: (usize, usize),
+    ) -> DILexicalBlock<'ctx> {
+        let func_scope: DIScope<'ctx> = scope.as_debug_info_scope();
+        self.dibuilder.create_lexical_block(
+            /* scope */ func_scope,
+            /* file */ self.compile_unit.get_file(),
+            /* line_no */ self.span_to_line(start).0,
+            /* column_no */ 0,
+        )
+    }
+
+    fn set_current_debug_location(
+        &self,
+        context: &'ctx Context,
+        builder: &Builder<'ctx>,
+        scope: DIScope<'ctx>,
+        span: (usize, usize),
+    ) {
+        let (line, column) = self.span_to_line(span);
+        println!("set_current_debug_location {:?}", (line, column));
+        /*
+                    fn create_debug_location(
+            &self,
+            context: &'ctx Context,
+            line: u32,
+            column: u32,
+            scope: DIScope<'ctx>
+        ) -> DebugLocation<'ctx>
+                */
+        let loc = self
+            .dibuilder
+            .create_debug_location(context, line, column, scope, None);
+        builder.set_current_debug_location(context, loc);
+    }
+}
+
 /// Defines the `Expr` compiler.
 pub struct Compiler<'a, 'ctx> {
     pub context: &'ctx Context,
     pub builder: &'a Builder<'ctx>,
+    debug_helper: &'a DebugHelper<'a, 'ctx>,
+    debug_info_function_scope: DISubProgram<'ctx>,
+    debug_info_function_lexical_block: DILexicalBlock<'ctx>,
     pub fpm: &'a PassManager<FunctionValue<'ctx>>,
     pub module: &'a Module<'ctx>,
     pub function: &'a FuncDef,
@@ -503,6 +618,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
                 self.builder.position_at_end(then_bb);
                 for stmt in body_stmt_spans.iter() {
+                    self.debug_helper.set_current_debug_location(
+                        self.context,
+                        self.builder,
+                        self.debug_info_function_lexical_block.as_debug_info_scope(),
+                        stmt.span(),
+                    );
                     if self.compile_stmt(stmt.into_inner())? {
                         break;
                     };
@@ -518,6 +639,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 self.builder.position_at_end(else_bb);
                 for stmt in else_stmt_spans.iter() {
+                    self.debug_helper.set_current_debug_location(
+                        self.context,
+                        self.builder,
+                        self.debug_info_function_lexical_block.as_debug_info_scope(),
+                        stmt.span(),
+                    );
                     if self.compile_stmt(stmt.into_inner())? {
                         break;
                     };
@@ -585,6 +712,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 // emit body
                 for stmt in body_stmt_spans.iter() {
+                    self.debug_helper.set_current_debug_location(
+                        self.context,
+                        self.builder,
+                        self.debug_info_function_lexical_block.as_debug_info_scope(),
+                        stmt.span(),
+                    );
                     if self.compile_stmt(stmt.into_inner())? {
                         break;
                     };
@@ -797,12 +930,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         if self.function.is_extern {
             return Ok(function);
         }
+        function.set_subprogram(self.debug_info_function_scope);
+        assert_eq!(
+            Some(self.debug_info_function_scope),
+            function.get_subprogram()
+        );
         for decl_span in self.function.declarations.iter() {
             match decl_span.into_inner() {
                 crate::ast::Decl::Func(funcdef_span) => {
                     let function = Self::compile(
                         self.context,
                         self.builder,
+                        &self.debug_helper,
                         self.fpm,
                         self.module,
                         funcdef_span.into_inner(),
@@ -872,6 +1011,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
         }
         for stmt in self.function.body.iter() {
+            self.debug_helper.set_current_debug_location(
+                self.context,
+                self.builder,
+                self.debug_info_function_lexical_block.as_debug_info_scope(),
+                stmt.span(),
+            );
             if self.compile_stmt(stmt)? {
                 break;
             };
@@ -892,7 +1037,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         // return the whole thing after verification and optimization
-        if function.verify(true) {
+        if true {
+            //function.verify(true) {
             //self.fpm.run_on(&function);
 
             Ok(function)
@@ -910,15 +1056,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub fn compile(
         context: &'ctx Context,
         builder: &'a Builder<'ctx>,
+        debug_helper: &'a DebugHelper<'a, 'ctx>,
         pass_manager: &'a PassManager<FunctionValue<'ctx>>,
         module: &'a Module<'ctx>,
-        function: &FuncDef,
+        function: &'a FuncDef,
         env: &'a ProgramEnvironment,
         scope_uuid: &'a ScopeUuid,
     ) -> Result<FunctionValue<'ctx>, TonyError> {
+        let debug_info_function_scope = debug_helper.create_function(function);
+        let debug_info_function_lexical_block = debug_helper
+            .create_lexical_block(debug_info_function_scope, function.header.0.var.id.span());
         let mut compiler = Compiler {
             context,
             builder,
+            debug_helper,
+            debug_info_function_scope,
+            debug_info_function_lexical_block,
             fpm: pass_manager,
             module,
             function,
