@@ -9,6 +9,7 @@
 //! an error represented by `Result<T, TonyError>`, for easier error reporting.
 
 extern crate tony_frontend;
+use inkwell::debug_info::AsDIScope;
 use std::io::{self, Read};
 use tony_frontend::lexer::*;
 use tony_frontend::TonyError;
@@ -187,12 +188,14 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
     */
 
     fpm.initialize();
+    let func_scope = debug_helper.compile_unit.get_file().as_debug_info_scope();
     // make module
     for funcdef in tony_frontend::builtins::builtins_to_funcdef() {
         match Compiler::compile(
             &context,
             &builder,
             &debug_helper,
+            func_scope,
             &fpm,
             &module,
             &funcdef,
@@ -225,6 +228,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
             &context,
             &builder,
             &debug_helper,
+            func_scope,
             &fpm,
             &module,
             &funcdef,

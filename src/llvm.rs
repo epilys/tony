@@ -65,8 +65,7 @@ impl<'a, 'ctx> DebugHelper<'a, 'ctx> {
         )
     }
 
-    fn create_function(&self, funcdef: &FuncDef) -> DISubProgram<'ctx> {
-        let func_scope: DIScope<'ctx> = self.compile_unit.as_debug_info_scope();
+    fn create_function(&self, funcdef: &FuncDef, func_scope: DIScope<'ctx>) -> DISubProgram<'ctx> {
         let ditype = self.dibuilder.create_basic_type(
             &format!("{:?}", funcdef.return_type()),
             64_u64,
@@ -83,7 +82,7 @@ impl<'a, 'ctx> DebugHelper<'a, 'ctx> {
         let flags = if funcdef.ident().0.as_str() == "main" {
             DIFlags::Public
         } else {
-            DIFlags::Prototyped
+            DIFlags::Public
         };
 
         let ret = self.dibuilder.create_function(
@@ -116,6 +115,41 @@ impl<'a, 'ctx> DebugHelper<'a, 'ctx> {
         )
     }
 
+    fn create_local_variable(
+        &self,
+        context: &'ctx Context,
+        builder: &Builder<'ctx>,
+        scope: DIScope<'ctx>,
+        alloca: PointerValue<'ctx>,
+        vardef: &VarDef,
+        block: inkwell::basic_block::BasicBlock<'ctx>,
+    ) {
+        let (line, column) = self.span_to_line(vardef.id.span());
+        let divar = self.dibuilder.create_parameter_variable(
+            /* scope */ scope,
+            /* name: */ vardef.id.0.as_str(),
+            /* arg_no: u32, */ 0,
+            /* file: DIFile<'ctx>*/ self.compile_unit.get_file(),
+            /* line_no: u32,*/ line,
+            /* ty: DIType<'ctx>*/
+            self.dibuilder
+                .create_basic_type("int", 64_u64, 0x05, DIFlags::Public),
+            /* always_preserve: bool*/ true,
+            DIFlags::Public,
+        );
+
+        let loc = self
+            .dibuilder
+            .create_debug_location(context, line, column, scope, None);
+        self.dibuilder.insert_declare_at_end(
+            /*storage */ alloca,
+            /*var_info*/ Some(divar),
+            /* expr */ None,
+            /* debug_loc */ loc,
+            /* block */ block,
+        );
+    }
+
     fn set_current_debug_location(
         &self,
         context: &'ctx Context,
@@ -124,16 +158,6 @@ impl<'a, 'ctx> DebugHelper<'a, 'ctx> {
         span: (usize, usize),
     ) {
         let (line, column) = self.span_to_line(span);
-        println!("set_current_debug_location {:?}", (line, column));
-        /*
-                    fn create_debug_location(
-            &self,
-            context: &'ctx Context,
-            line: u32,
-            column: u32,
-            scope: DIScope<'ctx>
-        ) -> DebugLocation<'ctx>
-                */
         let loc = self
             .dibuilder
             .create_debug_location(context, line, column, scope, None);
@@ -935,6 +959,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Some(self.debug_info_function_scope),
             function.get_subprogram()
         );
+        self.debug_helper.set_current_debug_location(
+            self.context,
+            self.builder,
+            self.debug_info_function_lexical_block.as_debug_info_scope(),
+            self.function.header.0.var.id.span(),
+        );
         for decl_span in self.function.declarations.iter() {
             match decl_span.into_inner() {
                 crate::ast::Decl::Func(funcdef_span) => {
@@ -942,6 +972,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         self.context,
                         self.builder,
                         &self.debug_helper,
+                        self.debug_info_function_scope.as_debug_info_scope(),
                         self.fpm,
                         self.module,
                         funcdef_span.into_inner(),
@@ -958,6 +989,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 crate::ast::Decl::Var(_) => {}
             }
         }
+        self.debug_helper.set_current_debug_location(
+            self.context,
+            self.builder,
+            self.debug_info_function_lexical_block.as_debug_info_scope(),
+            self.function.header.0.var.id.span(),
+        );
 
         let entry = self.context.append_basic_block(function, "entry");
 
@@ -996,6 +1033,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         let alloca = self
                             .create_entry_block_alloca(var_name, var_type, false /* is_ref */);
 
+                        self.debug_helper.create_local_variable(
+                            self.context,
+                            self.builder,
+                            self.debug_info_function_lexical_block.as_debug_info_scope(),
+                            alloca,
+                            vardef,
+                            self.builder.get_insert_block().unwrap(),
+                        );
                         self.variables.insert(
                             var_name.to_string(),
                             Variable {
@@ -1057,13 +1102,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         context: &'ctx Context,
         builder: &'a Builder<'ctx>,
         debug_helper: &'a DebugHelper<'a, 'ctx>,
+        func_scope: DIScope<'ctx>,
         pass_manager: &'a PassManager<FunctionValue<'ctx>>,
         module: &'a Module<'ctx>,
         function: &'a FuncDef,
         env: &'a ProgramEnvironment,
         scope_uuid: &'a ScopeUuid,
     ) -> Result<FunctionValue<'ctx>, TonyError> {
-        let debug_info_function_scope = debug_helper.create_function(function);
+        //builder.unset_current_debug_location();
+        debug_helper.set_current_debug_location(
+            context,
+            builder,
+            func_scope,
+            function.header.0.var.id.span(),
+        );
+        let debug_info_function_scope = debug_helper.create_function(function, func_scope);
         let debug_info_function_lexical_block = debug_helper
             .create_lexical_block(debug_info_function_scope, function.header.0.var.id.span());
         let mut compiler = Compiler {
