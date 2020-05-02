@@ -148,6 +148,7 @@ impl<'a, 'ctx> DebugHelper<'a, 'ctx> {
             /* debug_loc */ loc,
             /* block */ block,
         );
+        builder.position_at_end(block);
     }
 
     fn set_current_debug_location(
@@ -221,7 +222,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             builder.build_alloca(Compiler::tonytype_into_basictypenum(&self.context, t), name)
         };
         builder.build_store(ret, Compiler::tonytype_default_value(&self.context, t, ret));
-        if t.is_array() {
+        if t.is_array() || t.is_list() {
             HeapArray::incref(self, ret).unwrap();
         }
         ret
@@ -345,7 +346,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     )
                     .set_symbol_table_kind()
                 })?;
-                if var.def.var.tony_type.is_array() {
+                if var.def.var.tony_type.is_array() || var.def.var.tony_type.is_list() {
                     HeapArray::incref(self, var.ptr)?;
                 }
                 Ok(self.builder.build_load(var.ptr, name.as_str()))
@@ -514,6 +515,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         HeapArray::decref(self, var.ptr)?;
                         self.builder.build_store(var.ptr, var_val);
                     }
+                    (true, true) if var.def.var.tony_type.is_list() => {
+                        HeapArray::decref(self, var.ptr)?;
+                        self.builder.build_store(var.ptr, var_val);
+                    }
                     (true, true) => {
                         self.builder.build_store(
                             self.builder
@@ -562,6 +567,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     var_val.is_pointer_value(),
                 ) {
                     (true, true) if var_type.is_array() => {
+                        HeapArray::decref(self, var)?;
+                        self.builder.build_store(var, var_val);
+                    }
+                    (true, true) if var_type.is_list() => {
                         HeapArray::decref(self, var)?;
                         self.builder.build_store(var, var_val);
                     }
@@ -790,7 +799,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                                     )
                                     .set_symbol_table_kind()
                                 })?;
-                                if var.def.var.tony_type.is_array() {
+                                if var.def.var.tony_type.is_array()
+                                    || var.def.var.tony_type.is_list()
+                                {
                                     HeapArray::incref(self, var.ptr)?;
                                 }
                                 if var.ptr.get_type().get_element_type().is_pointer_type() {
@@ -835,7 +846,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .map(|val| val.into())
                     .collect();
                 for (i, ptr) in compiled_args.iter().enumerate() {
-                    if (funcdef.header.1)[i].var.tony_type.into_inner().is_array() {
+                    if (funcdef.header.1)[i].var.tony_type.into_inner().is_array()
+                        || (funcdef.header.1)[i].var.tony_type.into_inner().is_list()
+                    {
                         HeapArray::incref2(self, ptr.into_pointer_value())?;
                     }
                 }

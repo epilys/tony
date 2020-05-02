@@ -3,27 +3,31 @@ use std::convert::TryInto;
 
 #[no_mangle]
 pub extern "C" fn list_cons__(head: *const u8, tail: *const u8, element_size: usize) -> *const u8 {
-    unsafe {
-        ALLOC_TABLE.with(|tbl| {
-            if !tail.is_null() {
-                let tbl_ref = tbl.borrow();
-                if !tbl_ref.contains_key(&tail) {
-                    panic!();
-                }
-                let alloc = &tbl_ref[&tail];
-                let bytes_to_copy = alloc.size;
-                debug_assert_eq!(element_size, alloc.align);
-                drop(tbl_ref);
-                let dst = alloc__(bytes_to_copy / element_size + 1, element_size);
+    ALLOC_TABLE.with(|tbl| {
+        if !tail.is_null() {
+            let tbl_ref = tbl.borrow();
+            if !tbl_ref.contains_key(&tail) {
+                panic!();
+            }
+            let alloc = &tbl_ref[&tail];
+            let bytes_to_copy = alloc.size;
+            debug_assert_eq!(element_size, alloc.align);
+            drop(tbl_ref);
+            let dst = alloc__(bytes_to_copy / element_size + 1, element_size);
+            unsafe {
                 let dst_offset = dst.offset(element_size.try_into().unwrap());
                 std::ptr::copy_nonoverlapping(tail, dst_offset, bytes_to_copy);
                 std::ptr::copy_nonoverlapping(head, dst, element_size);
-                dst
-            } else {
-                alloc__(1, element_size)
             }
-        })
-    }
+            dst
+        } else {
+            let ret = alloc__(1, element_size);
+            unsafe {
+                std::ptr::copy_nonoverlapping(head, ret, element_size);
+            }
+            ret
+        }
+    })
 }
 
 #[no_mangle]

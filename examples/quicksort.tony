@@ -6,7 +6,7 @@ def main ():
       if nil?(l): return rest end
       pivot := head(l)
       l := tail(l)
-      for lt := nil, ge := nil; nil?(l); l := tail(l):
+      for lt := nil, ge := nil; not nil?(l); l := tail(l):
         x := head(l)
         if x < pivot: lt := x # lt else: ge := x # ge end
       end
