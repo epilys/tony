@@ -15,13 +15,13 @@ path = "src/main.rs"
 
 
 [build-dependencies] # <-- We added this and everything after!
-lalrpop = "0.18.1"
+lalrpop = "0.19.7"
 
 [dependencies]
-lalrpop-util = "0.18.1"
-inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "llvm8-0" }
+lalrpop-util = "*"
+inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm11-0"] }
 uuid = { version = "0.7.4", features = ["v4"] }
-libc = "0.2.69"
+libc = "*"
 libfuzzer-sys = { version = "0.3", optional = true, features = ["arbitrary-derive"] }
 
 [features]

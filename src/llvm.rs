@@ -4,8 +4,9 @@ use crate::symbols::{ProgramEnvironment, ScopeUuid};
 
 use inkwell::builder::Builder;
 pub use inkwell::context::Context;
+use inkwell::debug_info::DIFlagsConstants;
 use inkwell::debug_info::{
-    AsDIScope, DICompileUnit, DIFlags, DILexicalBlock, DIScope, DISubProgram, DebugInfoBuilder,
+    AsDIScope, DICompileUnit, DIFlags, DILexicalBlock, DIScope, DISubprogram, DebugInfoBuilder,
 };
 use inkwell::module::Module;
 pub use inkwell::passes::PassManager;
@@ -65,24 +66,24 @@ impl<'a, 'ctx> DebugHelper<'a, 'ctx> {
         )
     }
 
-    fn create_function(&self, funcdef: &FuncDef, func_scope: DIScope<'ctx>) -> DISubProgram<'ctx> {
+    fn create_function(&self, funcdef: &FuncDef, func_scope: DIScope<'ctx>) -> DISubprogram<'ctx> {
         let ditype = self.dibuilder.create_basic_type(
             &format!("{:?}", funcdef.return_type()),
             64_u64,
             0x05,
-            DIFlags::Public,
+            DIFlags::PUBLIC,
         );
         let subr_type = self.dibuilder.create_subroutine_type(
             self.compile_unit.get_file(),
-            ditype,
-            vec![],
-            DIFlags::Public,
+            Some(ditype.unwrap().as_type()),
+            &[],
+            DIFlags::PUBLIC,
         );
 
         let flags = if funcdef.ident().0.as_str() == "main" {
-            DIFlags::Public
+            DIFlags::PUBLIC
         } else {
-            DIFlags::Public
+            DIFlags::PUBLIC
         };
 
         let ret = self.dibuilder.create_function(
@@ -103,7 +104,7 @@ impl<'a, 'ctx> DebugHelper<'a, 'ctx> {
 
     fn create_lexical_block(
         &self,
-        scope: DISubProgram<'ctx>,
+        scope: DISubprogram<'ctx>,
         start: (usize, usize),
     ) -> DILexicalBlock<'ctx> {
         let func_scope: DIScope<'ctx> = scope.as_debug_info_scope();
@@ -133,9 +134,11 @@ impl<'a, 'ctx> DebugHelper<'a, 'ctx> {
             /* line_no: u32,*/ line,
             /* ty: DIType<'ctx>*/
             self.dibuilder
-                .create_basic_type("int", 64_u64, 0x05, DIFlags::Public),
+                .create_basic_type("int", 64_u64, 0x05, DIFlags::PUBLIC)
+                .unwrap()
+                .as_type(),
             /* always_preserve: bool*/ true,
-            DIFlags::Public,
+            DIFlags::PUBLIC,
         );
 
         let loc = self
@@ -171,7 +174,7 @@ pub struct Compiler<'a, 'ctx> {
     pub context: &'ctx Context,
     pub builder: &'a Builder<'ctx>,
     debug_helper: &'a DebugHelper<'a, 'ctx>,
-    debug_info_function_scope: DISubProgram<'ctx>,
+    debug_info_function_scope: DISubprogram<'ctx>,
     debug_info_function_lexical_block: DILexicalBlock<'ctx>,
     pub fpm: &'a PassManager<FunctionValue<'ctx>>,
     pub module: &'a Module<'ctx>,
@@ -840,7 +843,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     }
                 }
 
-                let argsv: Vec<BasicValueEnum> = compiled_args
+                let argsv: Vec<_> = compiled_args
                     .iter()
                     .cloned()
                     .map(|val| val.into())
@@ -1176,38 +1179,42 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         is_ref: bool,
         args: &[BasicTypeEnum<'ctx>],
     ) -> FunctionType<'ctx> {
+        let args = args
+            .into_iter()
+            .map(|a| (*a).into())
+            .collect::<Vec<inkwell::types::BasicMetadataTypeEnum>>();
         if is_ref {
             match t {
                 TonyType::Any => unreachable!(),
                 TonyType::Int => context
                     .i64_type()
                     .ptr_type(AddressSpace::Generic)
-                    .fn_type(args, false),
+                    .fn_type(&args, false),
                 TonyType::Bool => context
                     .bool_type()
                     .ptr_type(AddressSpace::Generic)
-                    .fn_type(args, false),
+                    .fn_type(&args, false),
                 TonyType::Char => context
                     .i8_type()
                     .ptr_type(AddressSpace::Generic)
-                    .fn_type(args, false),
-                TonyType::Unit => context.void_type().fn_type(args, false),
+                    .fn_type(&args, false),
+                TonyType::Unit => context.void_type().fn_type(&args, false),
                 TonyType::Array(type_span) | TonyType::List(type_span) => {
                     Compiler::tonytype_into_basictypenum_ref(context, type_span.into_inner())
                         .ptr_type(AddressSpace::Generic)
-                        .fn_type(args, false)
+                        .fn_type(&args, false)
                 }
             }
         } else {
             match t {
                 TonyType::Any => unreachable!(),
-                TonyType::Int => context.i64_type().fn_type(args, false),
-                TonyType::Bool => context.bool_type().fn_type(args, false),
-                TonyType::Char => context.i8_type().fn_type(args, false),
-                TonyType::Unit => context.void_type().fn_type(args, false),
+                TonyType::Int => context.i64_type().fn_type(&args, false),
+                TonyType::Bool => context.bool_type().fn_type(&args, false),
+                TonyType::Char => context.i8_type().fn_type(&args, false),
+                TonyType::Unit => context.void_type().fn_type(&args, false),
                 TonyType::Array(type_span) | TonyType::List(type_span) => {
                     Compiler::tonytype_into_basictypenum_ref(context, type_span.into_inner())
-                        .fn_type(args, false)
+                        .fn_type(&args, false)
                 }
             }
         }

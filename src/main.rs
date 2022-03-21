@@ -152,10 +152,26 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
         debug_metadata_version,
     );
 
-    let dibuilder = module.create_debug_info_builder(true);
-
-    let compile_unit = dibuilder.create_compile_unit(
+    let (dibuilder, compile_unit) = module.create_debug_info_builder(
+        true,
         inkwell::debug_info::DWARFSourceLanguage::C,
+        conf.file.as_str(),
+        ".",
+        /* producer */ "tony toy compiler",
+        false,
+        "",
+        1,
+        "debug_file",
+        /* kind */ inkwell::debug_info::DWARFEmissionKind::Full,
+        0x0,
+        true,
+        false,
+        "",
+        "",
+    );
+
+    /*
+    let compile_unit = dibuilder.create_compile_unit(
         dibuilder.create_file(conf.file.as_str(), "."),
         /* producer */ "tony toy compiler",
         /* is_optimized */ false,
@@ -167,6 +183,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
         /* split_debug_inling */ true,
         /* debug_info_for_profiling */ false,
     );
+        */
     let debug_helper = DebugHelper {
         dibuilder: &dibuilder,
         compile_unit: &compile_unit,
@@ -282,16 +299,21 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
     let data_layout = target_machine.get_target_data().get_data_layout();
 
     module.set_data_layout(&data_layout);
+    target_machine
+        .write_to_file(&module, inkwell::targets::FileType::Object, &path)
+        .unwrap();
+    println!("Output = {:?}", &path);
     /*
     target_machine
         .write_to_file(&module, inkwell::targets:FileType::Object, &path)
         .unwrap();
     */
+    /*
     module.print_to_file(&path).unwrap();
     println!(
         "compiling.. {}",
         String::from_utf8_lossy(
-            &std::process::Command::new("llc-8")
+            &std::process::Command::new("llc-11")
                 .args(&["-relocation-model=pic", "-filetype=obj", "output.ll"])
                 .output()
                 .unwrap()
@@ -307,6 +329,7 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
                     "target/debug/libruntime.a",
                     "-lpthread",
                     "-ldl",
+                    "-lm",
                     "-o",
                     "main"
                 ])
@@ -315,5 +338,6 @@ fn run_app(conf: RunConfig) -> Result<(), i32> {
                 .stderr
         )
     );
+    */
     Ok(())
 }

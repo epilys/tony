@@ -23,15 +23,15 @@ pub struct TonyError {
     pos: Pos,
 }
 macro_rules! set_fn {
-        ($set_name:ident, $kind:expr) => {
-            pub fn $set_name(self) -> Self {
-                TonyError {
-                    kind: $kind,
-                    .. self
-                }
+    ($set_name:ident, $kind:expr) => {
+        pub fn $set_name(self) -> Self {
+            TonyError {
+                kind: $kind,
+                ..self
             }
         }
-    }
+    };
+}
 
 impl TonyError {
     pub fn new<I: Into<String>>(msg: I) -> TonyError {
